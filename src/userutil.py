@@ -60,4 +60,7 @@ def dual_plot(y1, y2, png_path, name, legend1, legend2):
     plt.legend()
     plt.gcf().set_dpi(400)
     plt.savefig(png_file)
-    
+
+def condition_function(label_name, query):
+    return query in label_name
+

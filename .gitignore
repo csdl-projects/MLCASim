@@ -2,3 +2,5 @@
 /LGD/
 /src/__pycache__/
 /src/wandb/
+/src/*.png
+/checkpoint/

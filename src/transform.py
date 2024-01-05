@@ -6,26 +6,26 @@ import os
 from argparse import ArgumentParser
 
 
-def lis_file_parse(file_path, output_name):
+def lis_file_parse(lis_file, raw_file, label_file):
     labels = []
     voltage_data = torch.empty([1,1])
-    with open(file_path, 'r') as file:
+    with open(lis_file, 'r') as file:
         lines = file.readlines()
         start_index = -1
         label_line_indices = []
 
         for index, line in enumerate(lines):
             if ' transient analysis' in line:
-                start_index = index + 3
+                start_index = index + 1
             if start_index != -1:
-                if 'xpixel' in line:
-                    label_line_indices.append(index+1)
-                    labels.extend(line.split())
+                if 'x' == line[0]:
+                    label_line_indices.append(index+3)
         s = 0
         prev = 0
         prec = 0
         for index in label_line_indices:
-            label_num = len(lines[index-1].strip().split())
+            labels.extend(lines[index].strip().split())
+            label_num = len(lines[index].strip().split())
             volt = torch.empty([label_num,1])
             time = torch.empty([1])
             for line in lines[index+1:]:
@@ -50,9 +50,11 @@ def lis_file_parse(file_path, output_name):
                     time = torch.cat([time,t], dim=0)
                     prev = float(values[0])
                     
-                volt= torch.cat([volt, voltages], dim=1)
+                volt = torch.cat([volt, voltages], dim=1)
 
-    torch.save(voltage_data,output_name)
+    with open(label_file, 'w') as file:
+        file.write(' '.join(labels))
+    torch.save(voltage_data, raw_file)
     return voltage_data.shape
 
 def extract_scan_rising_time(times, datas, max, min):    
@@ -93,19 +95,6 @@ def extract_scan_rising_time(times, datas, max, min):
                 break
                 
     return risingX_s, risingX_e, fallingX_s, fallingX_e
-
-def find_maxmin(datas):
-    max_ = torch.full((22,), -1e20)
-    min_ = torch.full((22,), 1e20)
-    for index in range(datas.shape[0]):
-        s_index = index % 22
-        if max_[s_index] < torch.max(datas[index, :]).item():
-            max_[s_index] = torch.max(datas[index, :]).item()
-
-        if min_[s_index] > torch.min(datas[index, :]).item():
-            min_[s_index] = torch.min(datas[index, :]).item()
-
-    return max_, min_
                                 
 def Z_Normalization(input, mean, std):
     return (input-mean)/std
