@@ -24,9 +24,9 @@ sweep_config = {
     },
     "parameters": {
         "cases": {
-            "values": [[(1000, 1, 8.0, 0.008, 2, 4.8)]],
-            # "values": [[(1000, 1, 8.0, 0.008, 2, 5.8)]],
-            # "values": [[(500, 1, 8.0, 0.008, 2, 5.8), (1000, 1, 8.0, 0.008, 2, 5.8)]],
+            # "values": [[(1920, 1, 8.0, 0.008, 2, 5.8, 2), (1920, 1, 8.0, 0.008, 2, 4.8, 2), (1920, 1, 8.0, 0.008, 2, 3.9, 2), (1920, 1, 8.0, 0.008, 2, 3.1, 2)]],
+            "values": [[(1920, 1, 8.0, 0.008, 2, 5.9, 2), (1920, 1, 8.0, 0.008, 2, 4.8, 2), (1920, 1, 8.0, 0.008, 2, 4.3, 2), (1920, 1, 8.0, 0.008, 2, 3.9, 2), (1920, 1, 8.0, 0.008, 2, 3.6, 2), (1920, 1, 8.0, 0.008, 2, 3.3, 2), (1920, 1, 8.0, 0.008, 2, 3.1, 2)]],
+            # "values": [[(1, 1080, 8.0, 0.008, 2, 5.9, 2), (1, 1080, 8.0, 0.008, 2, 4.8, 2), (1, 1080, 8.0, 0.008, 2, 4.3, 2), (1, 1080, 8.0, 0.008, 2, 3.9, 2), (1, 1080, 8.0, 0.008, 2, 3.6, 2), (1, 1080, 8.0, 0.008, 2, 3.3, 2), (1, 1080, 8.0, 0.008, 2, 3.1, 2)]],
         },
         "learning_rate": {
             "values": [0.001]
@@ -35,7 +35,7 @@ sweep_config = {
             "values" : [3]
         },
         "lstm_window_size": {
-            "values" : [15]
+            "values" : [70]
         },
         # "lstm_window_size": {
         #     "max" : 100,
@@ -46,6 +46,7 @@ sweep_config = {
         },
         "lstm_hidden_size": {
             "values" : [200]
+            # "values" : [500, 1000]
         },
         # "lstm_hidden_size": {
         #     "max" : 200,
@@ -55,20 +56,22 @@ sweep_config = {
             "values":[0]
         },
         "end": {
-            "values":[15000]
+            # "values":[15000]
+            "values":[20000]
         },
         "resolution": {
-            "values":[1e-2]
+            # "values":[1e-2]
+            "values":[4e-2]
         },
         "batch_size": {
-            "values":[100]
+            "values":[200]
         },
     }
 }
 
-def get_model(args, num_param, PE = 0, option=0):
+def get_model(args, num_param, PE = 0, mode = 0, option=0):
     if option == 0:
-        model = Model(args, num_param, PE).cuda()
+        model = Model(args, num_param, PE, mode).cuda()
         
     if option == 1:
         model = FastModel(args, num_param, PE).cuda()
@@ -155,7 +158,7 @@ def process(args, train_loader, test_loader, CHECKPOINT_PATH, name, maxepoch):
     if args['verbose']:
         start = time.time()       
 
-    model = get_model(args, 10, args['PE'], args['model_option'])
+    model = get_model(args, 11, args['PE'], args['mode'], args['model_option'])
     optimizer = torch.optim.Adam(model.parameters(), lr = args['learning_rate'])
 
     if args['verbose']:
@@ -203,12 +206,13 @@ def main():
     parser.add_argument('-n', '--name', required=False, type=str, default = 't', help='Name of model')
     parser.add_argument('-e', '--epoch', required=False, type=int, default = '0', help='Number of training epoch')
     parser.add_argument('-o', '--model_option', required=False, type=int, default = '0', help='Number of model type')
-    parser.add_argument('-pe', '--PE', required=False, type=int, default = '0', help='Positional Encoding')
+    parser.add_argument('-pe', '--PE', required=False, type=int, default = 0, help='Positional Encoding')
+    parser.add_argument('-m', '--mode', required=False, type=int, default = 0, help='Positional Encoding Sum or Concatenate')
     parser.add_argument('-d', '--device', required=True, type=str, help='gpu-id')
     parser.add_argument('-r', '--resume', required=False, type=int, default = 0, help='True when resume')
     parser.add_argument('-v', '--verbose', required=False, type=int, default = 0, help='True when verbose mode')
     parser.add_argument('-t', '--test', required=False, type=int, default = 0, help='True when want FINAL Test')
-    parser.add_argument('-s', '--sample_num', required=False, type=int, default = 10, help='Number of sample hop') 
+    parser.add_argument('-si', '--sample_num', required=False, type=int, default = 30, help='Number of sample hop') 
     args = parser.parse_args()
 
     wandb.init(project = "MLCASim")

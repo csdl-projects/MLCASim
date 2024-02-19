@@ -26,8 +26,8 @@ class PA_Dataset(torch.utils.data.Dataset):
 		data_files = []
 		
 		for c in cases:
-			num_scan_pixels, num_data_pixels, res, cap, tw_s, VDH = c
-			pixel_name = f'{num_scan_pixels}_{num_data_pixels}_{res:.1f}_{cap:.3f}_{tw_s}_{VDH:.1f}'
+			num_scan_pixels, num_data_pixels, res, cap, tw_s, VDH, load_ratio = c
+			pixel_name = f'{num_scan_pixels}_{num_data_pixels}_{res:.1f}_{cap:.3f}_{tw_s}_{VDH:.1f}_{load_ratio}'
 			param_dir = f'/project/common/LGD/spice_data/processed/{pixel_name}/param'
 			datas_dir = f'/project/common/LGD/spice_data/processed/{pixel_name}/datas'			
 			os.makedirs(param_dir, exist_ok=True)
@@ -35,12 +35,17 @@ class PA_Dataset(torch.utils.data.Dataset):
 			data_files.append(self.construct_datasets(args, c, pixel_name, param_dir, datas_dir))
 		
 		flat_data_files = list(chain.from_iterable(data_files))
+		# print(flat_data_files)
 		self.datas = []
 		for raw in flat_data_files:
+			# print(raw)
 			name = raw.split('/')[-1]
+			base_dir = '/'.join(raw.split('/')[:-2])
+			param_dir = os.path.join(base_dir, 'param')
+			datas_dir = os.path.join(base_dir, 'datas')
 			param = torch.load(os.path.join(param_dir, name))
 			data = torch.load(os.path.join(datas_dir, name))
-			x, y = [], []
+
 			if mode == 'train':
 				for index in range(data.shape[0]):
 					d = data[index, int(args['start']):int(args['end']):int(1/args['resolution'])]
@@ -57,7 +62,8 @@ class PA_Dataset(torch.utils.data.Dataset):
 					seq_y = d
 					t = torch.tensor([index], dtype=torch.float64)
 					self.datas.append((seq_x, seq_y, torch.cat((param,t), dim=0)))
-			
+
+
 	def __len__(self):
 		return len(self.datas)
 
@@ -65,10 +71,11 @@ class PA_Dataset(torch.utils.data.Dataset):
 		return self.datas[idx]
 	
 	def construct_datasets(self, args, c, pixel_name, param_dir, datas_dir):
-		num_scan_pixels, num_data_pixels, res, cap, tw_s, VDH = c
+		num_scan_pixels, num_data_pixels, res, cap, tw_s, VDH, load_ratio = c
 		lis_file = os.path.join(self.lis_dir, f'Array{pixel_name}.lis')
 		raw_file = os.path.join(self.raw_dir, f'raw{pixel_name}.raw')
 		label_file = os.path.join(self.raw_dir, f'name{pixel_name}.raw')
+		# print(lis_file)
 		if not os.path.exists(raw_file):
 			if args['verbose']:
 				print("RAWFILE NOT Exists")
@@ -79,8 +86,9 @@ class PA_Dataset(torch.utils.data.Dataset):
 					return
 			else:			
 				transform.lis_file_parse(lis_file, raw_file, label_file)
+
 		rawdata = torch.load(raw_file)
-		label_name = ['Time']
+		label_name = ['time']
 		with open(label_file, 'r') as file:
 			label_name += file.readline().strip().split()
 						
@@ -111,19 +119,30 @@ class PA_Dataset(torch.utils.data.Dataset):
 			
 		np.savetxt(os.path.join(min_max_dir, f'max.np'), np.array(v_max_), delimiter=' ', fmt='%s')
 		np.savetxt(os.path.join(min_max_dir, f'min.np'), np.array(v_min_), delimiter=' ', fmt='%s')
+		# if args['verbose']:
+		# 	print('Max : ', v_max_, 'Min : ', v_min_)
 		# Pixel wise split
 		data_files = []
 		sample_num = args['sample_num']
 		data_querys = ['--', '---', 'drg', 'drs', 'xel']
-		plt.clf()		
-		png_file = os.path.join('./', f'{pixel_name}.png')
-		for i in range(0, num_scan_pixels, sample_num):
-			for j in range(0, num_data_pixels, sample_num):
+		if args['verbose']:
+			plot_data = []
+
+		for i in range(1, num_scan_pixels + 1, sample_num):
+			for _j in range(1 , num_data_pixels + 1, sample_num):
+				j = _j
+				if num_scan_pixels == 1:
+					j = _j+1
+
 				name = f"pixel{i}_{j}.praw"
-				params = torch.tensor([i, num_scan_pixels, j, num_data_pixels, float(res), cap, tw_s, VDH])
-				torch.save(params, os.path.join(param_dir, name))           
-				selected_rows = [row for index, row in enumerate(rawdata) if condition_function(label_name[index], f'x1<{num_data_pixels*i + j + 1}>')]
-				selected_labels = [label for label in label_name if condition_function(label, f'x1<{num_data_pixels*i + j + 1}>')]   
+				params = torch.tensor([i/2000.0, num_scan_pixels/2000.0, j/2000.0, num_data_pixels/2000.0, float(res)/8, cap, tw_s/2, VDH/10, load_ratio/10])
+				torch.save(params, os.path.join(param_dir, name))   
+				id = j + (i-1) * num_data_pixels
+				if id >= num_data_pixels * num_scan_pixels:
+					continue
+
+				selected_rows = [row for index, row in enumerate(rawdata) if condition_function(label_name[index], f'x1<{id}>')]
+				selected_labels = [label for label in label_name if condition_function(label, f'x1<{id}>')]   
 				if selected_rows == []:
 					continue
 				
@@ -133,23 +152,45 @@ class PA_Dataset(torch.utils.data.Dataset):
 					selected_rows_ = [row for index, row in enumerate(rawdata_) if condition_function(selected_labels[index], query)]
 					if selected_rows_ == []:
 						continue
+					
 					rawdata__ = torch.stack(selected_rows_, dim=0)
 					datas.append((rawdata__ - v_min[index1]) / (v_max[index1] - v_min[index1]))
+				
+				if args['verbose'] and (i-1) % (sample_num * 2) == 0 and (_j-1) % (sample_num * 2) == 0:
+					plot_data.append(datas)
 
-				datas_ = torch.stack(datas, dim=0).squeeze()
+				datas_ = torch.stack(datas).squeeze()				
 				torch.save(datas_, os.path.join(datas_dir, name))
 				data_files += [os.path.join(datas_dir, name)]
-				x = range(len(datas_[2]))
-				plt.ylim(0,1)
-				plt.plot(x, datas_[2], 'b', label=name)    
+				# if args['verbose']:
+				# 	print('Saving : ', name)
 
-		plt.legend()
-		plt.savefig(png_file)
+		if args['verbose']:
+			print('Plotting : ', pixel_name)
+			self.data_plot(pixel_name, plot_data)
 		return data_files
 
+	def data_plot(self, pixel_name, datas):
+		folder = '../original_data/plot/'
+		os.makedirs(folder, exist_ok=True)
+		file_name = ['drg', 'drs', 'diode']
+		for i in range(0, 3):
+			print('Plotting : ', file_name[i])
+			plt.clf()			
+			plt.ylim(0,1)
+			for j in range(len(datas)):
+				d = datas[j][i][0]
+				d = d[0:int(self.args['end']):int(1/self.args['resolution'])]
+				x = range(len(d))
+				plt.plot(x, d, 'b')
+
+			# plt.legend()
+			plt.savefig(folder + file_name[i]+'_'+ pixel_name + '.png')
+
 class MyCollator(object):
-	def __init__(self, batch_size):
+	def __init__(self, batch_size, mode):
 		self.batch_size = batch_size
+		self.mode = mode
 
 	def __call__(self, samples):
 		x_list, y_list, input_list = zip(*samples)
@@ -159,7 +200,10 @@ class MyCollator(object):
 		input_list = torch.stack(input_list)
 		if diff > 0:
 			x_list = torch.cat([x_list, torch.zeros(diff, x_list.shape[1])])
-			y_list = torch.cat([y_list, torch.zeros(diff)])
+			if self.mode == 'train':
+				y_list = torch.cat([y_list, torch.zeros(diff)])
+			else:
+				y_list = torch.cat([y_list, torch.zeros(diff, y_list.shape[1])])
 			input_list = torch.cat([input_list, torch.zeros(diff, input_list.shape[1])])
 
 		return x_list, y_list, input_list	
@@ -186,7 +230,7 @@ def load_datasets(args, mode = 'train'):
 		train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
 
 		batch_size = args['batch_size']
-		collate_fn = MyCollator(batch_size)
+		collate_fn = MyCollator(batch_size, mode)
 		train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, pin_memory=(torch.cuda.is_available()), num_workers = 15, collate_fn = collate_fn)
 		test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, pin_memory=(torch.cuda.is_available()), num_workers = 15, collate_fn = collate_fn)
 		# train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, pin_memory=(torch.cuda.is_available()), num_workers = 15)
@@ -197,8 +241,8 @@ def load_datasets(args, mode = 'train'):
 		dataset = PA_Dataset(args, mode='plot')
 		batch_size = args['batch_size']
 
-		all_indices = list(range(len(dataset)))
-		subset_dataset = Subset(dataset, all_indices[::len(dataset)//(3*batch_size)][:3*batch_size])
-		collate_fn = MyCollator(batch_size)
-		plot_loader = DataLoader(subset_dataset, batch_size=batch_size, shuffle=False, pin_memory=(torch.cuda.is_available()), num_workers = 15)
+		# all_indices = list(range(len(dataset)))
+		# subset_dataset = Subset(dataset, all_indices[::len(dataset)//(3*batch_size)][:3*batch_size])
+		collate_fn = MyCollator(batch_size, mode)
+		plot_loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, pin_memory=(torch.cuda.is_available()), num_workers = 15, collate_fn = collate_fn)
 		return plot_loader
