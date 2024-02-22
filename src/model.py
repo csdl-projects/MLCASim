@@ -8,10 +8,7 @@ from torch.multiprocessing import Pool
 class FastModel(nn.Module):
     def __init__(self, args, num_param):
         super(FastModel, self).__init__()        
-        self.start = args['start']
-        self.end = args['end']
-        self.resolution = args['resolution']
-        self.total = int((self.end - self.start) / self.resolution)
+        self.total = int((args['end'] - args['start']) * args['resolution'])
         self.lstm_window_size = args["lstm_window_size"]
         self.CNNLSTMs = CNNLSTM(args, num_param, self.total - self.lstm_window_size).cuda()
 
@@ -24,7 +21,7 @@ class Model(nn.Module):
     def __init__(self, args, num_param, PE=0, mode=0):
         super(Model, self).__init__()
         self.CNNLSTMs = CNNLSTM(args, num_param, 1, PE, mode).cuda()
-
+        
     def forward(self, x, params):
         r = self.CNNLSTMs(x, params)
         return r
@@ -39,9 +36,9 @@ class CNNLSTM(nn.Module):
         self.PE = PE
         self.mode = mode
 
-        self.cnn = nn.Conv1d(in_channels=1, out_channels=1, kernel_size = 2, stride = 1, dtype=torch.float64).cuda()
-        self.lstm = nn.LSTM(input_size=1, hidden_size=self.lstm_hidden, num_layers=self.n_layers, batch_first = True, dtype=torch.float64).cuda()
-        self.decoder = nn.Linear(self.seq_len * self.n_layers * self.lstm_hidden, num_output, dtype=torch.float64).cuda()
+        self.cnn = nn.Conv1d(in_channels=1, out_channels=1, kernel_size = 2, stride = 1, dtype=torch.float32).cuda()
+        self.lstm = nn.LSTM(input_size=1, hidden_size=self.lstm_hidden, num_layers=self.n_layers, batch_first = True, dtype=torch.float32).cuda()
+        self.decoder = nn.Linear(self.seq_len * self.n_layers * self.lstm_hidden, num_output, dtype=torch.float32).cuda()
 
         if PE == 1:
             if mode == 0:
@@ -58,19 +55,19 @@ class CNNLSTM(nn.Module):
 
         if PE != 0 and mode == 1:
             self.hiddenUpdater = nn.Sequential(
-                nn.Linear(num_param, int(self.lstm_hidden/4), dtype=torch.float64),
+                nn.Linear(num_param, int(self.lstm_hidden/4), dtype=torch.float32),
                 nn.ReLU(),
-                nn.Linear(int(self.lstm_hidden/4), int(self.lstm_hidden/4), dtype=torch.float64),
+                nn.Linear(int(self.lstm_hidden/4), int(self.lstm_hidden/4), dtype=torch.float32),
                 nn.ReLU(),
-                nn.Linear(int(self.lstm_hidden/4), int(self.lstm_hidden/2), dtype=torch.float64)
+                nn.Linear(int(self.lstm_hidden/4), int(self.lstm_hidden/2), dtype=torch.float32)
             ).cuda()
         else :
             self.hiddenUpdater = nn.Sequential(
-                nn.Linear(num_param, int(self.lstm_hidden/2), dtype=torch.float64),
+                nn.Linear(num_param, int(self.lstm_hidden/2), dtype=torch.float32),
                 nn.ReLU(),
-                nn.Linear(int(self.lstm_hidden/2), int(self.lstm_hidden/2), dtype=torch.float64),
+                nn.Linear(int(self.lstm_hidden/2), int(self.lstm_hidden/2), dtype=torch.float32),
                 nn.ReLU(),
-                nn.Linear(int(self.lstm_hidden/2), int(self.lstm_hidden), dtype=torch.float64)
+                nn.Linear(int(self.lstm_hidden/2), int(self.lstm_hidden), dtype=torch.float32)
             ).cuda()
 
     def set_initial_hidden_state(self, params):
@@ -106,7 +103,7 @@ class CNNLSTM(nn.Module):
     
 # params : i, num_scan_pixels, j, num_data_pixels, float(res), cap, tw_s, VDH, load_ratio
 class PositionalEncoding1D(nn.Module):
-    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 4000):
+    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 2000):
         super(PositionalEncoding1D, self).__init__()
         self.dropout = nn.Dropout(p=dropout).cuda()
         self.encoding = torch.zeros(max_len, d_model).cuda()

@@ -45,24 +45,13 @@ class PA_Dataset(torch.utils.data.Dataset):
 			datas_dir = os.path.join(base_dir, 'datas')
 			param = torch.load(os.path.join(param_dir, name))
 			data = torch.load(os.path.join(datas_dir, name))
-
-			if mode == 'train':
-				for index in range(data.shape[0]):
-					d = data[index, int(args['start']):int(args['end']):int(1/args['resolution'])]
-					for i in range(len(d) - args['lstm_window_size'] - 1):
-						seq_x, seq_y = d[i:i + args['lstm_window_size']], d[i + args['lstm_window_size']]
-						t = torch.tensor([index, i], dtype=torch.float64)
-						self.datas.append((seq_x, seq_y, torch.cat((param,t), dim=0)))
-
-			elif mode == 'plot':
-				for index in range(data.shape[0]):
-					d = data[index, int(args['start']):int(args['end']):int(1/args['resolution'])]
-					# for i in range(len(d) - args['lstm_window_size'] - 1):
-					seq_x = d[0:args['lstm_window_size']]
-					seq_y = d
-					t = torch.tensor([index], dtype=torch.float64)
-					self.datas.append((seq_x, seq_y, torch.cat((param,t), dim=0)))
-
+			x, y = [], []
+			for index in range(args['input_size']):
+				d = data[index, int(args['start']):int(args['end']):int(1/args['resolution'])]
+				x.append(d[0:args['lstm_window_size']])
+				y.append(d)
+				
+			self.datas.append((torch.stack(x), torch.stack(y), param))
 
 	def __len__(self):
 		return len(self.datas)
@@ -135,7 +124,7 @@ class PA_Dataset(torch.utils.data.Dataset):
 					j = _j+1
 
 				name = f"pixel{i}_{j}.praw"
-				params = torch.tensor([i/2000.0, num_scan_pixels/2000.0, j/2000.0, num_data_pixels/2000.0, float(res)/8, cap, tw_s/2, VDH/10, load_ratio/10])
+				params = torch.tensor([i/2000.0, num_scan_pixels/2000.0, j/2000.0, num_data_pixels/2000.0, float(res)/8, cap, float(tw_s)/2.0, float(VDH)/10.0, float(load_ratio)/10.0])
 				torch.save(params, os.path.join(param_dir, name))   
 				id = j + (i-1) * num_data_pixels
 				if id >= num_data_pixels * num_scan_pixels:
@@ -223,18 +212,20 @@ class MyCollator(object):
 def load_datasets(args, mode = 'train'):	
 	if mode == 'train':				
 		dataset = PA_Dataset(args, mode='train')
-		train_ratio = 0.8
+		# train_ratio = 0.8
 		dataset_size = len(dataset)
-		train_size = int(train_ratio * dataset_size)
+		# train_size = int(train_ratio * dataset_size)
+		# test_size = dataset_size - train_size
+		batch_size = args['batch_size']
+
+
+		train_size = int(dataset_size/batch_size) * batch_size
 		test_size = dataset_size - train_size
 		train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
 
-		batch_size = args['batch_size']
 		collate_fn = MyCollator(batch_size, mode)
 		train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, pin_memory=(torch.cuda.is_available()), num_workers = 15, collate_fn = collate_fn)
 		test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, pin_memory=(torch.cuda.is_available()), num_workers = 15, collate_fn = collate_fn)
-		# train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, pin_memory=(torch.cuda.is_available()), num_workers = 15)
-		# test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, pin_memory=(torch.cuda.is_available()), num_workers = 15)
 		return train_loader, test_loader
 	
 	else:
