@@ -26,10 +26,7 @@ sweep_config = {
     },
     "parameters": {
         "cases": {
-            # "values": [[(1920, 1, 8.0, 0.008, 2, 5.8, 2), (1920, 1, 8.0, 0.008, 2, 4.8, 2), (1920, 1, 8.0, 0.008, 2, 3.9, 2), (1920, 1, 8.0, 0.008, 2, 3.1, 2)]],
-            # "values": [[(1920, 1, 8.0, 0.008, 2, 5.9, 2), (1920, 1, 8.0, 0.008, 2, 4.8, 2), (1920, 1, 8.0, 0.008, 2, 4.3, 2), (1920, 1, 8.0, 0.008, 2, 3.9, 2), (1920, 1, 8.0, 0.008, 2, 3.6, 2), (1920, 1, 8.0, 0.008, 2, 3.3, 2), (1920, 1, 8.0, 0.008, 2, 3.1, 2)]],
-            # "values": [[(1920, 1, 8.0, 0.008, 2, 4.8, 2), (1920, 1, 8.0, 0.008, 2, 4.3, 2), (1920, 1, 8.0, 0.008, 2, 3.9, 2), (1920, 1, 8.0, 0.008, 2, 3.6, 2), (1920, 1, 8.0, 0.008, 2, 3.3, 2), (1920, 1, 8.0, 0.008, 2, 3.1, 2)]],
-            "values": [[(1920, 1, 8.0, 0.008, 2, 4.8, 2), (1920, 1, 8.0, 0.008, 2, 4.3, 2)]],
+            "values": [[(1920, 1, 8.0, 0.008, 2, 4.8, 2), (1920, 1, 8.0, 0.008, 2, 4.3, 2), (1920, 1, 8.0, 0.008, 2, 3.9, 2), (1920, 1, 8.0, 0.008, 2, 3.6, 2), (1920, 1, 8.0, 0.008, 2, 3.3, 2), (1920, 1, 8.0, 0.008, 2, 3.1, 2)]],
             # "values": [[(1, 1080, 8.0, 0.008, 2, 5.9, 2), (1, 1080, 8.0, 0.008, 2, 4.8, 2), (1, 1080, 8.0, 0.008, 2, 4.3, 2), (1, 1080, 8.0, 0.008, 2, 3.9, 2), (1, 1080, 8.0, 0.008, 2, 3.6, 2), (1, 1080, 8.0, 0.008, 2, 3.3, 2), (1, 1080, 8.0, 0.008, 2, 3.1, 2)]],
         },
         "learning_rate": {
@@ -41,33 +38,26 @@ sweep_config = {
         "lstm_window_size": {
             "values" : [50]
         },
-        # "lstm_window_size": {
-        #     "max" : 100,
-        #     "min" : 10,
-        # },
         "lstm_num_layers": {
             "values" : [1]
         },
         "lstm_hidden_size": {
             "values" : [100]
-            # "values" : [500, 1000]
         },
         "start": {
             "values":[0]
         },
         "end": {
-            # "values":[15000]
             "values":[20000]
             # "values":[200000]
         },
         "resolution": {
-            # "values":[1e-2]
             "values":[5e-2]
             # "values":[1e-3]
         },
         "batch_size": {
-            # "values":[100]
-            "values":[30]
+            "values":[200]
+            # "values":[50]
         },
     }
 }
@@ -82,11 +72,9 @@ def get_model(args, num_param, PE = 0, mode = 0, option=0):
     return model
 
 
-def train(args, models, train_loader, loss_functions, optimizers, epoch, mode):
-    input_size = args['input_size']
+def train(args, model, train_loader, loss_function, optimizer, epoch, mode):
     train_losses, times = [], []
-    for i in range(input_size):
-        models[i].train()
+    model.train()
 
     start = time.time()
     total = int((args['end'] - args['start']) * args['resolution'])
@@ -94,34 +82,27 @@ def train(args, models, train_loader, loss_functions, optimizers, epoch, mode):
     for x, y_true, params in train_loader:
         # torch.cuda.empty_cache()
         start = time.time()
-        x = x.to(torch.float32)
-        y_true = y_true.to(torch.float32)       
-        params = params.to(torch.float32)
+        x = x.to(torch.float32).cuda()
+        y_true = y_true.to(torch.float32).cuda()       
+        params = params.to(torch.float32).cuda()
         # print(x.shape, y_true.shape, params.shape)
 
-        for i in range(input_size):
-            optimizers[i].zero_grad()
-            model_input = x[:, i].clone().cuda()
-            result = x[:, i].clone().cuda()
-            for index in range(total - args["lstm_window_size"]): 
-                torch.cuda.empty_cache()
-                t = torch.full((args['batch_size'], 1), float(index/total), dtype=torch.float32)
-                t_params = torch.cat((params, t), dim=1)
-                r = models[i](model_input, t_params).unsqueeze(1)
-                result = torch.cat([result, r.clone()], dim=1)
-                model_input = torch.cat([model_input[:, 1:], r.clone()], dim=1)
-                del t, t_params, r
+        optimizer.zero_grad()
+        model_input = x.clone()
+        result = x.clone()
+        for index in range(total - args["lstm_window_size"]): 
+            t = torch.full((args['batch_size'], 1), index, dtype=torch.float32).cuda()
+            t_params = torch.cat((params, t), dim=1)
+            r = model(model_input, t_params).unsqueeze(1)
+            result = torch.cat([result, r], dim=1)
+            model_input = torch.cat([model_input[:, 1:], r], dim=1)
 
-            loss = loss_functions[i](result.cuda(), y_true[:,i].cuda())
-            loss.backward()
-            optimizers[i].step()
-            train_losses.append(float(loss))
-            del loss, result, model_input
-        
-        del x, y_true, params
+        loss = loss_function(result, y_true)
+        loss.backward()
+        optimizer.step()
+        train_losses.append(float(loss))            
         times.append(time.time()-start)
 
-    # train_loss = statistics.mean(train_losses)
     train_loss = max(train_losses)
     
     if args['verbose'] and epoch%10 == 0:
@@ -131,71 +112,59 @@ def train(args, models, train_loader, loss_functions, optimizers, epoch, mode):
         f'Train Loss' : train_loss,
         f'One Epoch Time' : max(times),
     })
-    return models, optimizers
+    return model, optimizer
 
-
-def plot(args, models, plot_loader, name, best_loss):    
+def plot(args, model, plot_loader, name, best_loss):    
     index_to_name = ['W_DRG', 'W_DRS', 'W_DIODE']
-    input_size = args['input_size']
     R2_list, MAPE_list, MAE_list, MSE_list = [], [], [], []
     min_max_dir = '/project/common/LGD/spice_data/raw/max_min'
     final = {}
     total = int((args['end'] - args['start']) * args['resolution'])
 
     with torch.no_grad():        
-        for i in range(input_size):
-            models[i].eval()
-
+        model.eval()
         for x, y_true, params in plot_loader:
-            x = x.to(torch.float32)
-            y_true = y_true.to(torch.float32)       
-            params = params.to(torch.float32)
-            total = torch.zeros((args['batch_size'], 1, total), dtype=torch.float32)
-            for i in range(input_size):
-                model_input = x[:, i].clone().cuda()
-                result = x[:, i].clone().cuda()
-                for index in range(total - args["lstm_window_size"]): 
-                    t = torch.full((args['batch_size'], 1), index, dtype=torch.float32)
-                    t_params = torch.cat((params, t), dim=1)
-                    r = models[i](model_input, t_params).unsqueeze(1)
-                    result = torch.cat([result, r.clone()], dim=1)
-                    model_input = torch.cat([model_input[:, 1:], r.clone()], dim=1)
-                    del t, t_params, r
+            x = x.to(torch.float32).cuda()
+            y_true = y_true.to(torch.float32).cuda()       
+            params = params.to(torch.float32).cuda()
 
-                total = torch.cat([total, result.clone().unsqueeze(1)], dim=1)
-                del model_input, result
+            model_input = x.clone()
+            result = x.clone()
+            for index in range(total - args["lstm_window_size"]): 
+                t = torch.full((args['batch_size'], 1), index, dtype=torch.float32).cuda()
+                t_params = torch.cat((params, t), dim=1)
+                r = model(model_input, t_params).unsqueeze(1)
+                result = torch.cat([result, r], dim=1)
+                model_input = torch.cat([model_input[:, 1:], r], dim=1)
 
-            result = total[:, 1:]
             R2   = metric.R2Score(result, y_true)
             MAPE = metric.MAPE(result, y_true)
             MAE  = metric.MAE(result, y_true)
             MSE  = metric.MSE(result, y_true)
 
             R2_list.append(float(R2))
-            MAPE_list.append(float(MAPE.item()))
+            MAPE_list.append(float(MAPE))
             MAE_list.append(float(MAE))
             MSE_list.append(float(MSE))
 
             if best_loss > MSE:
                 for index in range(args['batch_size']):
-                    for type in range(input_size):
-                        list_param = params[index, type].tolist()
-                        np_result = result[index, type].clone().detach().cpu().numpy()
-                        np_y_true = y_true[index, type].clone().detach().cpu().numpy()
-                        final[tuple(list_param)] = np_result
-                        if args['plot'] == 1:
-                            plt.clf()                    
-                            x = range(np_y_true.shape[0])
-                            plt.plot(x, np_result, 'b')    
-                            plt.plot(x, np_y_true, 'g')   
-                            plt.ylim(0, 1)
+                    list_param = params[index].tolist()
 
-                            plot_dir = f'../plot/{name}/{index_to_name[type]}'
-                            os.makedirs(plot_dir, exist_ok=True)
-                            t_name = f'{int(list_param[0]*2000)}_{int(list_param[1]*2000)}_{int(list_param[2]*2000)}_{int(list_param[3]*2000)}_{int(list_param[4]*8)}_{list_param[5]:.3f}_{int(list_param[6]*2)}_{float(list_param[7]*10):.1f}_{int(list_param[8]*10)}'
-                            plt.savefig(os.path.join(plot_dir, f'{t_name}.png'))
-                
-            del x, y_true, params, result
+                    np_result = result[index].clone().detach().cpu().numpy()
+                    np_y_true = y_true[index].clone().detach().cpu().numpy()
+                    final[tuple(list_param)] = np_result
+                    if args['plot'] == 1:
+                        plt.clf()                    
+                        x = range(y_true.shape[1])
+                        plt.plot(x, np_result, 'b')    
+                        plt.plot(x, np_y_true, 'g')   
+                        plt.ylim(0, 1)
+
+                        plot_dir = f'../plot/{name}/{index_to_name[int(list_param[-1])]}'
+                        os.makedirs(plot_dir, exist_ok=True)
+                        t_name = f'{int(list_param[0]*2000)}_{int(list_param[1]*2000)}_{int(list_param[2]*2000)}_{int(list_param[3]*2000)}_{int(list_param[4]*8)}_{list_param[5]:.3f}_{int(list_param[6]*2)}_{float(list_param[7]*10):.1f}_{int(list_param[8]*10)}'
+                        plt.savefig(os.path.join(plot_dir, f'{t_name}.png'))
 
     R2   = statistics.mean(R2_list)
     MAPE = statistics.mean(MAPE_list)
@@ -211,17 +180,15 @@ def plot(args, models, plot_loader, name, best_loss):
 
     return [R2, MAPE, MAE, MSE]
 
-def process(args, train_loader, test_loader, plot_loader, CHECKPOINT_PATH, name, maxepoch):
-    input_size = args['input_size']
+def process(args, train_loader, plot_loader, CHECKPOINT_PATH, name, maxepoch):
     best_loss = 1e9
     start_epoch = 0
 
     if args['verbose']:
         start = time.time()       
 
-    models = [get_model(args, 10, args['PE'], args['mode'], args['model_option']) for _ in range(input_size)]
-    optimizers = [torch.optim.Adam(models[i].parameters(), lr = args['learning_rate']) for i in range(input_size)]
-    
+    model = get_model(args, 11, args['PE'], args['mode'], args['model_option'])
+    optimizer = torch.optim.Adam(model.parameters(), lr = args['learning_rate'])    
 
     if args['verbose']:
         end_model = time.time()
@@ -229,30 +196,26 @@ def process(args, train_loader, test_loader, plot_loader, CHECKPOINT_PATH, name,
 
     if args['resume']:
         checkpoint = torch.load(os.path.join(CHECKPOINT_PATH, name + '.pth'))
-        for i in range(input_size):
-            models[i].load_state_dict(checkpoint[f'model_state_dict'][i])
-            optimizers[i].load_state_dict(checkpoint[f'model_opt_state_dict'][i])
-
+        model.load_state_dict(checkpoint[f'model_state_dict'])
+        optimizer.load_state_dict(checkpoint[f'model_opt_state_dict'])
         best_loss = checkpoint['loss'][3]
         start_epoch= checkpoint['epoch'] + 1
 
-    loss_functions = [torch.nn.MSELoss() for _ in range(input_size)] 
-    for i in range(input_size):
-        wandb.watch(models[i], loss_functions[i], log="all", log_freq=10)
-    schedulers = [torch.optim.lr_scheduler.LambdaLR(optimizer = optimizers[i], lr_lambda = lambda epoch: 0.95 ** epoch) for i in range(input_size)]
-    for i in range(input_size):
-        schedulers[i].last_epoch = start_epoch - 1
+    loss_function = torch.nn.MSELoss()
+    wandb.watch(model, loss_function, log="all", log_freq=10)
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer = optimizer, lr_lambda = lambda epoch: 0.95 ** epoch)
+    scheduler.last_epoch = start_epoch - 1
     if args['verbose']:
-        print(f'Training starts, epoch : {schedulers[0].last_epoch + 1}' )
+        print(f'Training starts, epoch : {scheduler.last_epoch + 1}' )
 
     for epoch in tqdm(range(start_epoch, maxepoch), desc="Training",leave=True):
-        models, optimizers = train(args, models, train_loader, loss_functions, optimizers, epoch, 'm')
-        loss = plot(args, models, plot_loader, name, best_loss)
+        model, optimizer = train(args, model, train_loader, loss_function, optimizer, epoch, 'm')
+        loss = plot(args, model, plot_loader, name, best_loss)
 
         state = {
             'epoch' : epoch,
-            'model_state_dict' : [m.state_dict() for m in models],
-            'model_opt_state_dict' : [opt.state_dict() for opt in optimizers],
+            'model_state_dict' : model.state_dict(),
+            'model_opt_state_dict' : optimizer.state_dict(),
             'loss' : loss,
         }
         torch.save(state, os.path.join(CHECKPOINT_PATH, name + '.pth'))
@@ -301,7 +264,7 @@ def main():
     if args['verbose']:
         print('SPICE Data Loading Completed')
     
-    train_loader, test_loader = load_datasets(args)
+    train_loader, _ = load_datasets(args)
     # plot_loader = load_datasets(args, 'plot')
 
     end_dataset = time.time()
@@ -311,7 +274,7 @@ def main():
 
     # Dataset generation
     if args['epoch'] > 0:
-        process(args, train_loader, test_loader, train_loader, CHECKPOINT_PATH, name, args['epoch'])
+        process(args, train_loader, train_loader, CHECKPOINT_PATH, name, args['epoch'])
 
     print("time (Total)   : ", time.time() - end_dataset)
 

@@ -45,13 +45,12 @@ class PA_Dataset(torch.utils.data.Dataset):
 			datas_dir = os.path.join(base_dir, 'datas')
 			param = torch.load(os.path.join(param_dir, name))
 			data = torch.load(os.path.join(datas_dir, name))
-			x, y = [], []
 			for index in range(args['input_size']):
 				d = data[index, int(args['start']):int(args['end']):int(1/args['resolution'])]
-				x.append(d[0:args['lstm_window_size']])
-				y.append(d)
+				t = torch.tensor([index], dtype=torch.float32)
+				self.datas.append((d[0:args['lstm_window_size']], d, torch.cat([param, t])))
 				
-			self.datas.append((torch.stack(x), torch.stack(y), param))
+			# self.datas.append((torch.stack(x), torch.stack(y), param))
 
 	def __len__(self):
 		return len(self.datas)
