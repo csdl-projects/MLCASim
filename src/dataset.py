@@ -14,7 +14,7 @@ from userutil import condition_function
 
 class PA_Dataset(torch.utils.data.Dataset):
 	#torch_geometric.data.Dataset:
-	def __init__(self, args, mode):
+	def __init__(self, args, type , mode):
 		self.args = args
 		self.mode = mode
 		self.lis_dir = '/project/common/LGD/spice_data/output'
@@ -45,12 +45,16 @@ class PA_Dataset(torch.utils.data.Dataset):
 			datas_dir = os.path.join(base_dir, 'datas')
 			param = torch.load(os.path.join(param_dir, name))
 			data = torch.load(os.path.join(datas_dir, name))
-			for index in range(args['input_size']):
-				d = data[index, int(args['start']):int(args['end']):int(1/args['resolution'])]
-				t = torch.tensor([index], dtype=torch.float32)
+			if type == -1:
+				for index in range(args['input_size']):
+					d = data[index, int(args['start']):int(args['end']):int(1/args['resolution'])]
+					t = torch.tensor([index], dtype=torch.float32)
+					self.datas.append((d[0:args['lstm_window_size']], d, torch.cat([param, t])))
+			
+			else:
+				d = data[type, int(args['start']):int(args['end']):int(1/args['resolution'])]
+				t = torch.tensor([type], dtype=torch.float32)
 				self.datas.append((d[0:args['lstm_window_size']], d, torch.cat([param, t])))
-				
-			# self.datas.append((torch.stack(x), torch.stack(y), param))
 
 	def __len__(self):
 		return len(self.datas)
@@ -208,9 +212,9 @@ class MyCollator(object):
 		# return samples
 
 
-def load_datasets(args, mode = 'train'):	
+def load_datasets(args, type = -1, mode = 'train'):	
 	if mode == 'train':				
-		dataset = PA_Dataset(args, mode='train')
+		dataset = PA_Dataset(args, type, 'train')
 		# train_ratio = 0.8
 		dataset_size = len(dataset)
 		# train_size = int(train_ratio * dataset_size)

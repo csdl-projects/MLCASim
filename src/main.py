@@ -56,7 +56,7 @@ sweep_config = {
             # "values":[1e-3]
         },
         "batch_size": {
-            "values":[200]
+            "values":[50]
             # "values":[50]
         },
     }
@@ -264,17 +264,15 @@ def main():
     if args['verbose']:
         print('SPICE Data Loading Completed')
     
-    train_loader, _ = load_datasets(args)
-    # plot_loader = load_datasets(args, 'plot')
-
     end_dataset = time.time()
     
-    if args['verbose']:
-        print(f"Dataset generated\tTIME : {(end_dataset- start):.2f}, Batch : {args['batch_size']}") 
-
+    index_to_name = ['DRG', 'DRS', 'DIODE']
     # Dataset generation
     if args['epoch'] > 0:
-        process(args, train_loader, train_loader, CHECKPOINT_PATH, name, args['epoch'])
+        for type in range(args['input_size']):
+        # for type in [2]:
+            train_loader, _ = load_datasets(args, type, 'train')
+            process(args, train_loader, train_loader, CHECKPOINT_PATH, f'{name}_{index_to_name[type]}', args['epoch'])
 
     print("time (Total)   : ", time.time() - end_dataset)
 
