@@ -1,0 +1,1 @@
+python3 ../src/main.py -n 240605 -e 1 -o 0 -d 5 -v 1 -p 1

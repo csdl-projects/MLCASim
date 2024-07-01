@@ -1,0 +1,1 @@
+python3 ../src/main.py -n 240613 -e 1000 -o 0 -d 4

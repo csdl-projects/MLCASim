@@ -16,63 +16,21 @@ import matplotlib.pyplot as plt
 from dataset import load_datasets
 from model import *
 
-sweep_config = {
-    "project": "MLCASim",
-    "method": "grid",
-    # "method": "bayes",
-    "metric": {
-        "goal": "minimize",
-        "name": "MSE"
-    },
-    "parameters": {
-        "cases": {
-            "values": [[(1920, 1, 8.0, 0.008, 2, 4.8, 2), (1920, 1, 8.0, 0.008, 2, 4.3, 2), (1920, 1, 8.0, 0.008, 2, 3.9, 2), (1920, 1, 8.0, 0.008, 2, 3.6, 2), (1920, 1, 8.0, 0.008, 2, 3.3, 2), (1920, 1, 8.0, 0.008, 2, 3.1, 2)]],
-            # "values": [[(1, 1080, 8.0, 0.008, 2, 5.9, 2), (1, 1080, 8.0, 0.008, 2, 4.8, 2), (1, 1080, 8.0, 0.008, 2, 4.3, 2), (1, 1080, 8.0, 0.008, 2, 3.9, 2), (1, 1080, 8.0, 0.008, 2, 3.6, 2), (1, 1080, 8.0, 0.008, 2, 3.3, 2), (1, 1080, 8.0, 0.008, 2, 3.1, 2)]],
-        },
-        "learning_rate": {
-            "values": [0.001]
-        },
-        "input_size": {
-            "values" : [3]
-        },
-        "lstm_window_size": {
-            "values" : [50]
-        },
-        "lstm_num_layers": {
-            "values" : [1]
-        },
-        "lstm_hidden_size": {
-            "values" : [100]
-        },
-        "start": {
-            "values":[0]
-        },
-        "end": {
-            "values":[20000]
-            # "values":[200000]
-        },
-        "resolution": {
-            "values":[5e-2]
-            # "values":[1e-3]
-        },
-        "batch_size": {
-            "values":[50]
-            # "values":[50]
-        },
-    }
-}
 
 def get_model(args, num_param, PE = 0, mode = 0, option=0):
     if option == 0:
         model = Model(args, num_param, PE, mode)
         
     if option == 1:
-        model = FastModel(args, num_param, PE)
+        model = FastCNNLSTM(args, num_param, 1, PE, mode)
+
+    if option == 2:
+        model = FastModel(args, num_param, 1, PE, mode)
 
     return model
 
 
-def train(args, model, train_loader, loss_function, optimizer, epoch, mode):
+def train(args, model, train_loader, loss_function, optimizer, schedular, epoch, mode):
     train_losses, times = [], []
     model.train()
 
@@ -91,7 +49,7 @@ def train(args, model, train_loader, loss_function, optimizer, epoch, mode):
         model_input = x.clone()
         result = x.clone()
         for index in range(total - args["lstm_window_size"]): 
-            t = torch.full((args['batch_size'], 1), index, dtype=torch.float32).cuda()
+            t = torch.full((args['batch_size'], 1), index/1000.0, dtype=torch.float32).cuda()
             t_params = torch.cat((params, t), dim=1)
             r = model(model_input, t_params).unsqueeze(1)
             result = torch.cat([result, r], dim=1)
@@ -100,6 +58,8 @@ def train(args, model, train_loader, loss_function, optimizer, epoch, mode):
         loss = loss_function(result, y_true)
         loss.backward()
         optimizer.step()
+        # schedular.step(loss)
+        
         train_losses.append(float(loss))            
         times.append(time.time()-start)
 
@@ -111,10 +71,10 @@ def train(args, model, train_loader, loss_function, optimizer, epoch, mode):
     wandb.log({
         f'Train Loss' : train_loss,
         f'One Epoch Time' : max(times),
-    })
+    }, step = epoch)
     return model, optimizer
 
-def plot(args, model, plot_loader, name, best_loss):    
+def plot(args, model, plot_loader, name, best_loss, epoch):    
     index_to_name = ['W_DRG', 'W_DRS', 'W_DIODE']
     R2_list, MAPE_list, MAE_list, MSE_list = [], [], [], []
     min_max_dir = '/project/common/LGD/spice_data/raw/max_min'
@@ -131,7 +91,7 @@ def plot(args, model, plot_loader, name, best_loss):
             model_input = x.clone()
             result = x.clone()
             for index in range(total - args["lstm_window_size"]): 
-                t = torch.full((args['batch_size'], 1), index, dtype=torch.float32).cuda()
+                t = torch.full((args['batch_size'], 1), index/1000.0, dtype=torch.float32).cuda()
                 t_params = torch.cat((params, t), dim=1)
                 r = model(model_input, t_params).unsqueeze(1)
                 result = torch.cat([result, r], dim=1)
@@ -176,7 +136,7 @@ def plot(args, model, plot_loader, name, best_loss):
         f"MAPE" : MAPE,
         f"MAE": MAE,
         f"MSE": MSE
-    })
+    }, step = epoch)
 
     return [R2, MAPE, MAE, MSE]
 
@@ -201,16 +161,18 @@ def process(args, train_loader, plot_loader, CHECKPOINT_PATH, name, maxepoch):
         best_loss = checkpoint['loss'][3]
         start_epoch= checkpoint['epoch'] + 1
 
-    loss_function = torch.nn.MSELoss()
+    # loss_function = torch.nn.MSELoss()
+    loss_function = torch.nn.HuberLoss(reduction='mean', delta=0.5)
     wandb.watch(model, loss_function, log="all", log_freq=10)
-    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer = optimizer, lr_lambda = lambda epoch: 0.95 ** epoch)
+    # scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer = optimizer, lr_lambda = lambda epoch: 0.95 ** epoch)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer = optimizer, mode='min', factor=0.1, patience = 5, verbose = args['verbose'])
     scheduler.last_epoch = start_epoch - 1
     if args['verbose']:
         print(f'Training starts, epoch : {scheduler.last_epoch + 1}' )
 
     for epoch in tqdm(range(start_epoch, maxepoch), desc="Training",leave=True):
-        model, optimizer = train(args, model, train_loader, loss_function, optimizer, epoch, 'm')
-        loss = plot(args, model, plot_loader, name, best_loss)
+        model, optimizer = train(args, model, train_loader, loss_function, optimizer, scheduler, epoch, 'm')
+        loss = plot(args, model, plot_loader, name, best_loss, epoch)
 
         state = {
             'epoch' : epoch,
@@ -241,11 +203,18 @@ def main():
     parser.add_argument('-r', '--resume', required=False, type=int, default = 0, help='True when resume')
     parser.add_argument('-v', '--verbose', required=False, type=int, default = 0, help='True when verbose mode')
     # parser.add_argument('-t', '--test', required=False, type=int, default = 0, help='True when want FINAL Test')
-    parser.add_argument('-si', '--sample_num', required=False, type=int, default = 30, help='Number of sample hop') 
     parser.add_argument('-p', '--plot', required=False, type=int, default = 1, help='True when plot mode')
-    args = parser.parse_args()
+    parser.add_argument('--config', required=True, type=int, default = 1, help='Config file')
 
-    wandb.init(project = "MLCASim")
+
+
+
+
+    
+    args = parser.parse_args()
+    os.environ["WANDB_CONFIG_DIR"] = "../configs"
+
+    run = wandb.init(project = "MLCASim", config=)
     wandb.config.update(args)
     args = wandb.config
     os.environ["CUDA_VISIBLE_DEVICES"] = args['device']
@@ -257,6 +226,10 @@ def main():
     lstm_hidden_size = args['lstm_hidden_size']
 
     name = f'{base_name}_{lstm_window_size}_{lstm_num_layers}_{lstm_hidden_size}'
+    run.name = name
+
+    torch.manual_seed(42)
+    
     if not os.path.isdir(CHECKPOINT_PATH):
         os.makedirs(CHECKPOINT_PATH, exist_ok=True)
 

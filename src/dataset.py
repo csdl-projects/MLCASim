@@ -10,7 +10,7 @@ from itertools import chain
 import transform
 from userutil import plot
 from userutil import condition_function
-
+import utils
 
 class PA_Dataset(torch.utils.data.Dataset):
 	#torch_geometric.data.Dataset:
@@ -26,8 +26,11 @@ class PA_Dataset(torch.utils.data.Dataset):
 		data_files = []
 		
 		for c in cases:
-			num_scan_pixels, num_data_pixels, res, cap, tw_s, VDH, load_ratio = c
-			pixel_name = f'{num_scan_pixels}_{num_data_pixels}_{res:.1f}_{cap:.3f}_{tw_s}_{VDH:.1f}_{load_ratio}'
+			number_scanline_pixel, step_x, number_dataline_pixel, step_y, res, cap, tw_s, VDH, load_ratio = c
+			# pixel_name = f'{number_scanline_pixel}_{number_dataline_pixel}_{res:.1f}_{cap:.3f}_{tw_s}_{VDH:.1f}_{load_ratio}'
+			pixel_name = utils.getCircuitName('Pixel3T1C', (number_scanline_pixel, step_x, number_dataline_pixel, step_y, f'{res:.1f}', cap, f'TH*{tw_s}', VDH, load_ratio))
+			if args['verbose']:
+				print(pixel_name)
 			param_dir = f'/project/common/LGD/spice_data/processed/{pixel_name}/param'
 			datas_dir = f'/project/common/LGD/spice_data/processed/{pixel_name}/datas'			
 			os.makedirs(param_dir, exist_ok=True)
@@ -48,11 +51,14 @@ class PA_Dataset(torch.utils.data.Dataset):
 			if type == -1:
 				for index in range(args['input_size']):
 					d = data[index, int(args['start']):int(args['end']):int(1/args['resolution'])]
+					# print(d.shape)
 					t = torch.tensor([index], dtype=torch.float32)
 					self.datas.append((d[0:args['lstm_window_size']], d, torch.cat([param, t])))
 			
 			else:
-				d = data[type, int(args['start']):int(args['end']):int(1/args['resolution'])]
+				d = data[type]
+				d = d[int(args['start']):int(args['end']):int(1/args['resolution'])]
+				# print(d.shape)
 				t = torch.tensor([type], dtype=torch.float32)
 				self.datas.append((d[0:args['lstm_window_size']], d, torch.cat([param, t])))
 
@@ -63,10 +69,11 @@ class PA_Dataset(torch.utils.data.Dataset):
 		return self.datas[idx]
 	
 	def construct_datasets(self, args, c, pixel_name, param_dir, datas_dir):
-		num_scan_pixels, num_data_pixels, res, cap, tw_s, VDH, load_ratio = c
-		lis_file = os.path.join(self.lis_dir, f'Array{pixel_name}.lis')
+		number_scanline_pixel, step_x, number_dataline_pixel, step_y, res, cap, tw_s, VDH, load_ratio = c
+		# name = utils.getCircuitName('Pixel3T1C', (number_scanline_pixel, step_x, number_dataline_pixel, step_y, res, cap, tw_s, VDH, load_ratio))
+		lis_file = os.path.join(self.lis_dir, f'{pixel_name}.lis')
 		raw_file = os.path.join(self.raw_dir, f'raw{pixel_name}.raw')
-		label_file = os.path.join(self.raw_dir, f'name{pixel_name}.raw')
+		label_file = os.path.join(self.raw_dir, f'label{pixel_name}.raw')
 		# print(lis_file)
 		if not os.path.exists(raw_file):
 			if args['verbose']:
@@ -75,6 +82,7 @@ class PA_Dataset(torch.utils.data.Dataset):
 			if not os.path.exists(lis_file):
 				if args['verbose']:
 					print("SPICE File NOT Exists")		
+					# raise FileNotFoundError
 					return
 			else:			
 				transform.lis_file_parse(lis_file, raw_file, label_file)
@@ -115,26 +123,19 @@ class PA_Dataset(torch.utils.data.Dataset):
 		# 	print('Max : ', v_max_, 'Min : ', v_min_)
 		# Pixel wise split
 		data_files = []
-		sample_num = args['sample_num']
 		data_querys = ['--', '---', 'drg', 'drs', 'xel']
 		if args['verbose']:
 			plot_data = []
 
-		for i in range(1, num_scan_pixels + 1, sample_num):
-			for _j in range(1 , num_data_pixels + 1, sample_num):
-				j = _j
-				if num_scan_pixels == 1:
-					j = _j+1
-
+		for i in range(1, number_scanline_pixel + 1, step_x):
+			for j in [2] + list(range(step_y, number_dataline_pixel + 1, step_y)):
 				name = f"pixel{i}_{j}.praw"
-				params = torch.tensor([i/2000.0, num_scan_pixels/2000.0, j/2000.0, num_data_pixels/2000.0, float(res)/8, cap, float(tw_s)/2.0, float(VDH)/10.0, float(load_ratio)/10.0])
+				target = f"x_{i}_{j}.xwhite"
+				params = torch.tensor([i/2000.0, number_scanline_pixel/2000.0, j/2000.0, number_dataline_pixel/2000.0, float(res)/8, cap, float(tw_s)/2.0, float(VDH)/10.0, float(load_ratio)/10.0])
 				torch.save(params, os.path.join(param_dir, name))   
-				id = j + (i-1) * num_data_pixels
-				if id >= num_data_pixels * num_scan_pixels:
-					continue
-
-				selected_rows = [row for index, row in enumerate(rawdata) if condition_function(label_name[index], f'x1<{id}>')]
-				selected_labels = [label for label in label_name if condition_function(label, f'x1<{id}>')]   
+				
+				selected_rows = [row for index, row in enumerate(rawdata) if condition_function(label_name[index], target)]
+				selected_labels = [label for label in label_name if condition_function(label, target)]   
 				if selected_rows == []:
 					continue
 				
@@ -148,7 +149,7 @@ class PA_Dataset(torch.utils.data.Dataset):
 					rawdata__ = torch.stack(selected_rows_, dim=0)
 					datas.append((rawdata__ - v_min[index1]) / (v_max[index1] - v_min[index1]))
 				
-				if args['verbose'] and (i-1) % (sample_num * 2) == 0 and (_j-1) % (sample_num * 2) == 0:
+				if args['verbose']:
 					plot_data.append(datas)
 
 				datas_ = torch.stack(datas).squeeze()				
@@ -167,12 +168,12 @@ class PA_Dataset(torch.utils.data.Dataset):
 		os.makedirs(folder, exist_ok=True)
 		file_name = ['drg', 'drs', 'diode']
 		for i in range(0, 3):
-			print('Plotting : ', file_name[i])
+			# print('Plotting : ', file_name[i])
 			plt.clf()			
 			plt.ylim(0,1)
 			for j in range(len(datas)):
 				d = datas[j][i][0]
-				d = d[0:int(self.args['end']):int(1/self.args['resolution'])]
+				d = d[int(self.args['start']):int(self.args['end']):int(1/self.args['resolution'])]
 				x = range(len(d))
 				plt.plot(x, d, 'b')
 
@@ -232,7 +233,7 @@ def load_datasets(args, type = -1, mode = 'train'):
 		return train_loader, test_loader
 	
 	else:
-		dataset = PA_Dataset(args, mode='plot')
+		dataset = PA_Dataset(args, type, mode='plot')
 		batch_size = args['batch_size']
 
 		# all_indices = list(range(len(dataset)))

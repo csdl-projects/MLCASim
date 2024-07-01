@@ -6,15 +6,68 @@ import torch.nn as nn
 from torch.multiprocessing import Pool
 
 class FastModel(nn.Module):
-    def __init__(self, args, num_param):
-        super(FastModel, self).__init__()        
-        self.total = int((args['end'] - args['start']) * args['resolution'])
-        self.lstm_window_size = args["lstm_window_size"]
-        self.CNNLSTMs = CNNLSTM(args, num_param, self.total - self.lstm_window_size).cuda()
+    def __init__(self, args, num_param, num_output, PE=0, mode=0):
+        super(FastModel, self).__init__()
+        self.lstm_hidden = int(args['lstm_hidden_size'])
+
+
+        self.encoder = nn.Sequential(
+            nn.Linear(num_param, int(self.lstm_hidden/2), dtype=torch.float32),
+            nn.ReLU(),
+            nn.Linear(int(self.lstm_hidden/2), int(self.lstm_hidden/2), dtype=torch.float32),
+            nn.ReLU(),
+            nn.Linear(int(self.lstm_hidden/2), int(self.lstm_hidden), dtype=torch.float32),
+            nn.ReLU(),
+            nn.Linear(int(self.lstm_hidden), num_output, dtype=torch.float32)
+        ).cuda()
+        
+    def forward(self, x, params):
+        r = self.encoder(params).squeeze()
+        return r
+
+class FastCNNLSTM(nn.Module):
+    def __init__(self, args, num_param, num_output, PE=0, mode = 0):
+        super(FastCNNLSTM, self).__init__()
+        self.lstm_hidden = int(args['lstm_hidden_size'])
+        # self.seq_len = int(args['lstm_window_size'] - 1)
+        self.seq_len = int(args['lstm_window_size'])
+        self.n_layers = int(args['lstm_num_layers'])
+        self.batch_size = args['batch_size']
+        self.PE = PE
+        self.mode = mode
+
+        # self.cnn = nn.Conv1d(in_channels=1, out_channels=1, kernel_size = 2, stride = 1, dtype=torch.float32).cuda()
+        self.lstm = nn.LSTM(input_size=2, hidden_size=self.lstm_hidden, num_layers=self.n_layers, batch_first = True, dtype=torch.float32).cuda()
+        # self.encoder = nn.Linear(num_param, self.seq_len, dtype=torch.float32).cuda()
+        self.encoder = nn.Sequential(
+            nn.Linear(num_param, int(self.seq_len/2), dtype=torch.float32),
+            nn.ReLU(),
+            nn.Linear(int(self.seq_len/2), int(self.seq_len/2), dtype=torch.float32),
+            nn.ReLU(),
+            nn.Linear(int(self.seq_len/2), int(self.seq_len), dtype=torch.float32)
+        ).cuda()
+        self.decoder = nn.Linear(self.seq_len * self.n_layers * self.lstm_hidden, num_output, dtype=torch.float32).cuda()
+
+    def set_initial_hidden_state(self):
+        hidden = torch.zeros([self.n_layers, self.batch_size, self.lstm_hidden]).cuda()
+        self.hidden = (hidden, hidden)
 
     def forward(self, x, params):
-        r = self.CNNLSTMs(x, params)
-        return r
+        self.set_initial_hidden_state()
+        # print(x.shape, params.shape)
+        # x = self.cnn(x.unsqueeze(1))
+        self.lstm.flatten_parameters()
+        px = self.encoder(params)
+        # print(px.shape, x.shape)
+        x = torch.cat([x, px], dim=1).unsqueeze(1)
+        lstm_out, self.hidden = self.lstm(
+            x.reshape(self.batch_size, self.seq_len, 2),
+            self.hidden
+        )
+        # print(lstm_out.shape)
+        lstm_out = lstm_out.reshape(self.batch_size, -1)
+        result = self.decoder(lstm_out).squeeze()
+        return result
     
 # params : i, num_scan_pixels, j, num_data_pixels, float(res), cap, tw_s, VDH
 class Model(nn.Module):
@@ -119,3 +172,4 @@ class PositionalEncoding1D(nn.Module):
 
         return self.dropout(x)
     
+

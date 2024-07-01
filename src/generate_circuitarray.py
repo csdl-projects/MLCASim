@@ -3,28 +3,8 @@ import os
 import time
 from argparse import ArgumentParser
 
-parser = ArgumentParser(description='SPICE')
-parser.add_argument('-s', '--number_scanline_pixel', required=True, type=int, default = '10', help='number')
-parser.add_argument('-d', '--number_dataline_pixel', required=True, type=int, default = '10', help='number')
-parser.add_argument('-r', '--res', required=False, type=float, default = '8.0', help='number')
-parser.add_argument('-c', '--cap', required=False, type=float, default = '0.008', help='number')
-parser.add_argument('-t', '--tw_s', required=False, type=int, default = '2', help='number')
-parser.add_argument('-v', '--VDH', required=False, type=float, default = '5.8', help='number')
-parser.add_argument('-lr', '--load_ratio', required=False, type=int, default = '2', help='number')
-parser.add_argument('-si', '--sample_int', required=False, type=int, default = '30', help='number')
+import utils
 
-args = parser.parse_args()
-
-number_scanline_pixel = args.number_scanline_pixel
-number_dataline_pixel = args.number_dataline_pixel
-res = args.res
-cap = args.cap
-tw_s = 'TH*2'
-if tw_s == 1:
-    args.tw_s = 'TH*1'
-VDH = args.VDH
-si = args.sample_int
-load_ratio = args.load_ratio
 
 parameters = {
     'C_DRG_DRS_R': '(334.866f) * loadratio',
@@ -72,220 +52,188 @@ parameters = {
 }
 
 if __name__ == '__main__':        
+    parser = ArgumentParser(description='SPICE')
+    parser.add_argument('-s', '--number_scanline_pixel', required=True, type=int, default = '10', help='number')
+    parser.add_argument('-d', '--number_dataline_pixel', required=True, type=int, default = '10', help='number')
+    parser.add_argument('-r', '--res', required=False, type=float, default = '8.0', help='number')
+    parser.add_argument('-c', '--cap', required=False, type=float, default = '0.008', help='number')
+    parser.add_argument('-t', '--tw_s', required=False, type=int, default = '2', help='number')
+    parser.add_argument('-v', '--VDH', required=False, type=float, default = '5.8', help='number')
+    parser.add_argument('-lr', '--load_ratio', required=False, type=int, default = '2', help='number')
+    parser.add_argument('-x', '--step_x', required=False, type=int, default = '10', help='number')
+    parser.add_argument('-y', '--step_y', required=False, type=int, default = '8', help='number')
+    args = parser.parse_args()
+
+    number_scanline_pixel = args.number_scanline_pixel
+    number_dataline_pixel = args.number_dataline_pixel
+    res = args.res
+    cap = args.cap
+    tw_s = 'TH*2'
+    if args.tw_s == 1:
+        args.tw_s = 'TH*1'
+    VDH = args.VDH
+    step_x = args.step_x
+    step_y = args.step_y
+    load_ratio = args.load_ratio
+
     # Open the SPICE netlist file for writing
     pixel_dir = '/project/common/LGD/spice_data/circuit'
     data_dir = '/project/common/LGD/spice_data/output'
-    name = f'{number_scanline_pixel}_{number_dataline_pixel}_{res}_{cap}_{args.tw_s}_{VDH}_{load_ratio}'
-    sp_name = f'Array{name}.sp'
-    lis_name = f'Array{name}.lis'
+    name = utils.getCircuitName('Pixel3T1C', (number_scanline_pixel, step_x, number_dataline_pixel, step_y, res, cap, tw_s, VDH, load_ratio))
+    sp_name = f'{name}.sp'
+    lis_name = f'{name}.lis'
+    if os.path.exists(os.path.join(data_dir, sp_name)):
+        print('Already exists')
+        exit()        
+
     with open(os.path.join(pixel_dir, sp_name), 'w') as file:
         # Write the header section
-        file.write('''\n
-*************************************************************************
-***                                                                   ***
-***                               < OTV >                             ***
-***                                                                   ***
-*************************************************************************
+        file.write("*************************************************************************\n")
+        file.write("***                                                                   ***\n")
+        file.write("***                               < OTV >                             ***\n")
+        file.write("***                                                                   ***\n")
+        file.write("*************************************************************************\n")
+        file.write("***************************   <Include File>   **************************\n")
+        file.write(".INC '../OTV_PARFILE_Hspice_modify2'")
 
-**********   <Include File>   *******************************************
-''')
-        if number_scanline_pixel == 1:
-            file.write(".INC '../Base_OTV_PARFILE_Hspice_modify'")
-        
-        if number_dataline_pixel == 1:
-            file.write(".INC '../OTV_PARFILE_Hspice_modify'")
-
-        file.write('''\n
-.INC '../schematic.sp'
-
-*************************************************************************
-.savebias ./Initial.par tran time = 280u  ALL
-\n''')
-        file.write('''
-**********   <Load Parameter>   ******************************************
-''')
+        file.write("\n.INC '../schematic.sp'\n")
+        file.write("*************************************************************************\n")
+        file.write(".savebias ./Initial.par tran time = 280u  ALL\n\n")
+        file.write("**********   <Load Parameter>   ******************************************\n")
         # Write the parameter variations
         for param, value in parameters.items():
             file.write('.PARAM {} = {}\n'.format(param, value))
 
-        file.write('''\n
-*************************************************************************
-***                                                                   ***
-***                               <SPICE Param>                       ***
-***                                                                   ***
-*************************************************************************
-\n''')
-        if number_scanline_pixel == 1:
-            file.write('\n\n**************Scan Signal **************************\n')
-            file.write(f".PARAM  T00  = 'TH*16 - TW_S - TMG'\n")
-            for j in range(number_dataline_pixel):
-                file.write(f".PARAM  T{j+1:02}  = 'T{j:02} + TH'\n")
+        file.write("\n")
+        file.write("*************************************************************************\n")
+        file.write("***                                                                   ***\n")
+        file.write("***                               <SPICE Param>                       ***\n")
+        file.write("***                                                                   ***\n")
+        file.write("*************************************************************************\n")
 
-            file.write('\n\n**************Scan left Signal **************************\n')
-            for j in range(number_dataline_pixel):
-                file.write(f"VSCAN_L<{j+1}> SCAN_L<{j+1}>   0       PULSE(GVGL VGH T{j+1:02} TR TF TW_S '4*25*TP_S')\n")
+        # file.write(f"\n*** Vref Signal\n")
+        # for x in range(1,number_scanline_pixel+1):
+        #     file.write(f"VREF{x} VREF{x} 0 DC VREF\n")
+        
+        # file.write(f"\n*** Data Signal\n")
+        # for x in range(1,number_scanline_pixel+1):
+        #     file.write(f"VDATA_W{x} DATA_W{x} GND PULSE(VDLW VDHW TB TR TF TW TP)\n")
+        #     file.write(f"VDATA_R{x} DATA_R{x} GND PULSE(VDLR VDLR TB TR TF TW TP)\n")
+        #     file.write(f"VDATA_G{x} DATA_G{x} GND PULSE(VDLG VDLG TB TR TF TW TP)\n")
+        #     file.write(f"VDATA_B{x} DATA_B{x} GND PULSE(VDLB VDLB TB TR TF TW TP)\n")
+        #     file.write("\n")
 
-            file.write('\n\n**************Scan right Signal **************************\n')
-            for j in range(number_dataline_pixel):
-                file.write(f"VSCAN_R<{j+1}> SCAN_R<{j+1}>   0     PULSE(GVGL VGH T{j+1:02} TR TF TW_S '4*25*TP_S')\n")
-            
-            for i in range(number_scanline_pixel):                
-                id = i + 1
-                file.write(f'VDATA_W<{id}>   DATA_W<{id}>   GND   PULSE(VDLW  VDHW  TB  TR  TF  TW  TP)\n')
-                file.write(f'VDATA_R<{id}>   DATA_R<{id}>   GND   PULSE(VDLR  VDHR  TB  TR  TF  TW  TP)\n')
-                file.write(f'VDATA_G<{id}>   DATA_G<{id}>   GND   PULSE(VDLG  VDHG  TB  TR  TF  TW  TP)\n')
-                file.write(f'VDATA_B<{id}>   DATA_B<{id}>   GND   PULSE(VDLB  VDHB  TB  TR  TF  TW  TP)\n')
+        file.write(f"\n*** Scan Signal Timing\n")
+        file.write(f".PARAM T00 = 'TH*8 - TW_S - TMG'\n")
+        file.write(f".PARAM T01 = 'T00 + TH'\n")
+        for y in range(1,number_dataline_pixel):
+            file.write(f".PARAM T0{y+1} = 'T0{y} + TH'\n")
 
+        file.write(f"\n*** Scan Left Signal\n")
+        for y in range(1,number_dataline_pixel+1):
+            file.write(f"VSCAN_L<{y}> SCAN_L<{y}> 0 PULSE(GVGL VGH T0{y} TR TF TW_S '1/FR')\n")
+
+        file.write(f"\n*** Scan Right Signal\n")
+        for y in range(1,number_dataline_pixel+1):
+            file.write(f"VSCAN_R<{y}> SCAN_R<{y}> 0 PULSE(GVGL VGH T0{y} TR TF TW_S '1/FR')\n")
+        
         file.write('\n')
         # Write the header section
-        file.write('''\n
-*************************************************************************
-***                                                                   ***
-***                               <Schematic>                         ***
-***                                                                   ***
-*************************************************************************
-\n''')
+        file.write("\n")
+        file.write("*************************************************************************\n")
+        file.write("***                                                                   ***\n")
+        file.write("***                               <Schematic>                         ***\n")
+        file.write("***                                                                   ***\n")
+        file.write("*************************************************************************\n")
 
+        for x in range(1,number_scanline_pixel+1):
+            for y in range(1,number_dataline_pixel+1):
+                file.write(f"X_{x}_{y} DATAR{x}<{y+1}> DATAW{x}<{y+1}> DATAB{x}<{y+1}> DATAG{x}<{y+1}> DATAR{x}<{y}> DATAW{x}<{y}> DATAB{x}<{y}> DATAG{x}<{y}> SCAN{x}<{y}> SCAN{x+1}<{y}> VDD VDD VREF{x}<{y+1}> VREF{x}<{y}> VSS unit_pxl_ver01\n")        
 
-        if number_scanline_pixel == 1:
-            for j in range(number_dataline_pixel):            
-                id = j + 1
-                next_id = j + 2
-                file.write(f'X1<{id}> DATAR<{next_id}> DATAW<{next_id}> DATAB<{next_id}> DATAG<{next_id}> DATAR<{id}> DATAW<{id}> DATAB<{id}> DATAG<{id}> SCANL<{id}> SCANR<{id}> \n+ VDD VDD VREF<{j+2}> VREF<{j+1}> VSS unit_pxl_ver01\n')
+        for y in range(1,number_dataline_pixel+1):
+            file.write(f"X2<{y}> SCAN_R<{y}> SCAN{number_scanline_pixel+1}<{y}> scan_load_scale_top\n")
+            file.write(f"X3<{y}> SCAN_L<{y}> SCAN1<{y}> scan_load_scale_top\n")
+
+        for x in range(1,number_scanline_pixel+1):
+            file.write(f"Xr{x} DATA_RU{x} DATAR{x}<1> data_load_scale_top\n")
+            file.write(f"Xw{x} DATA_WU{x} DATAW{x}<1> data_load_scale_top\n")
+            file.write(f"Xb{x} DATA_BU{x} DATAB{x}<1> data_load_scale_top\n")
+            file.write(f"Xg{x} DATA_GU{x} DATAG{x}<1> data_load_scale_top\n")
             file.write('\n')
-            for j in range(number_dataline_pixel):
-                file.write(f'X2<{j+1}> SCAN_R<{j+1}> SCANR<{j+1}> scan_load_scale_top \n')
+
+        for x in range(1,number_scanline_pixel+1):
+            file.write(f"Xrp{x} DATA_R{x} DATA_RU{x} data_load_pcb_top\n")
+            file.write(f"Xwp{x} DATA_W{x} DATA_WU{x} data_load_pcb_top\n")
+            file.write(f"Xbp{x} DATA_B{x} DATA_BU{x} data_load_pcb_top\n")
+            file.write(f"Xgp{x} DATA_G{x} DATA_GU{x} data_load_pcb_top\n")
             file.write('\n')
-            for j in range(number_dataline_pixel):
-                file.write(f'X3<{j+1}> SCAN_L<{j+1}> SCANL<{j+1}> scan_load_scale_top\n')
-            file.write('\n')
+
+        for x in range(1,number_scanline_pixel+1):
+            file.write(f"X6{x} VREF{x} VREF{x}<1> ref_load_scale_top\n")
+        file.write(f"\n*** Vref Signal\n")
+        for x in range(1,number_scanline_pixel+1):
+            file.write(f"VREF{x} VREF{x} 0 DC VREF\n")
         
-        elif number_dataline_pixel == 1:
-            for i in range(number_scanline_pixel):
-                file.write(f'X1<{i+1}> NET1<{4*i}> NET1<{4*i+1}> NET1<{4*i+2}> NET1<{4*i+3}> DATA DATA DATA DATA SCAN<{i+1}> SCAN<{i+2}> \n+ VDD VDD NET2<{i+1}> VREF VSS unit_pxl_ver01\n')
-            file.write(f'X2 SCAN_L SCAN<{1}> scan_load_scale_top\n')
-            file.write(f'X3 SCAN_R SCAN<{number_scanline_pixel+1}> scan_load_scale_top\n')            
+        file.write(f"\n*** Data Signal\n")
+        for x in range(1,number_scanline_pixel+1):
+            file.write(f"VDATA_W{x} DATA_W{x} GND PULSE(VDLW VDHW TB TR TF TW TP)\n")
+            file.write(f"VDATA_R{x} DATA_R{x} GND PULSE(VDLR VDLR TB TR TF TW TP)\n")
+            file.write(f"VDATA_G{x} DATA_G{x} GND PULSE(VDLG VDLG TB TR TF TW TP)\n")
+            file.write(f"VDATA_B{x} DATA_B{x} GND PULSE(VDLB VDLB TB TR TF TW TP)\n")
+            file.write("\n")
 
-        else:
-            # Write the parameter variations for each iteration
-            for j in range(number_dataline_pixel):
-                for i in range(number_scanline_pixel):                
-                    id = j*number_scanline_pixel + i + 1
-                    next_id = (j + 1)*number_scanline_pixel + i + 1
-                    scanid = j*(number_scanline_pixel + 1) + i + 1
-                    file.write(f'X1<{id}> DATAR<{next_id}> DATAW<{next_id}> DATAB<{next_id}> DATAG<{next_id}> DATAR<{id}> DATAW<{id}> DATAB<{id}> DATAG<{id}> SCAN<{scanid}> SCAN<{scanid+1}> \n+ VDD VDD VREF<{j+2}> VREF<{j+1}> VSS unit_pxl_ver01\n')
-                    # file.write(f'X1<{id}> DATAR<{next_id}> DATAW<{next_id}> DATAB<{next_id}> DATAG<{next_id}> DATAR<{id}> DATAW<{id}> DATAB<{id}> DATAG<{id}> SCAN<{scanid}> SCAN<{scanid+1}> \n+ VDD VDD NET2<{id}> VREF VSS unit_pxl_ver01\n')
-                    # file.write(f'X1<{id}> DATAR<{next_id}> DATAW<{next_id}> DATAB<{next_id}> DATAG<{next_id}> DATA DATA DATA DATA SCAN<{scanid}> SCAN<{scanid+1}> \n+ VDD VDD NET2<{id}> VREF VSS unit_pxl_ver01\n')
-            
-            file.write('\n')
-            for j in range(number_dataline_pixel):
-                right = (j+1)*(number_scanline_pixel+1)
-                file.write(f'X2<{j+1}> SCAN_R<{j+1}> SCAN<{right}> scan_load_scale_top \n')
-            file.write('\n')
-            for j in range(number_dataline_pixel):
-                left = j*(number_scanline_pixel+1) + 1
-                file.write(f'X3<{j+1}> SCAN_L<{j+1}> SCAN<{left}> scan_load_scale_top\n')
-            file.write('\n')
-
-        if number_dataline_pixel is not 1:
-            for i in range(number_scanline_pixel):                
-                id = i + 1
-                file.write(f'X4<{4*i+1}> DATA_RU<{id}> DATAR<{id}> data_load_scale_top\n')
-                file.write(f'X4<{4*i+2}> DATA_WU<{id}> DATAW<{id}> data_load_scale_top\n')
-                file.write(f'X4<{4*i+3}> DATA_BU<{id}> DATAB<{id}> data_load_scale_top\n')
-                file.write(f'X4<{4*i+4}> DATA_GU<{id}> DATAG<{id}> data_load_scale_top\n')
-            file.write('\n')
-            for i in range(number_scanline_pixel):                
-                id = i + 1
-                file.write(f'X5<{4*i+1}> DATA_R<{id}> DATA_RU<{id}> data_load_pcb_top\n')
-                file.write(f'X5<{4*i+2}> DATA_W<{id}> DATA_WU<{id}> data_load_pcb_top\n')
-                file.write(f'X5<{4*i+3}> DATA_B<{id}> DATA_BU<{id}> data_load_pcb_top\n')
-                file.write(f'X5<{4*i+4}> DATA_G<{id}> DATA_GU<{id}> data_load_pcb_top\n')
-
-        # for j in range(number_dataline_pixel):
-        #     file.write(f'X6<{j+1}> VREF VREF<{j+1}> ref_load_scale_top\n')
-
-        file.write(f'X6 VREF VREF<1> ref_load_scale_top\n')
-
-        file.write('''\n
-*************************************************************************
-***                                                                   ***
-***                                  <Run>                            ***
-***                                                                   ***
-*************************************************************************
-\n''')
-        file.write('''
-.PARAM  Px = 1920
-.PARAM  Py = 100
-''')
+        file.write("\n")
+        file.write("*************************************************************************\n")
+        file.write("***                                                                   ***\n")
+        file.write("***                                  <Run>                            ***\n")
+        file.write("***                                                                   ***\n")
+        file.write("*************************************************************************\n")
+        file.write("\n")
+        file.write(".PARAM  Px = 1920\n")
+        file.write(".PARAM  Py = 100\n")
         file.write(f'.PARAM VDHW = {VDH}\n')
         file.write(f'.PARAM VDHR = {VDH}\n')
         file.write(f'.PARAM VDHG = {VDH}\n')
         file.write(f'.PARAM VDHB = {VDH}\n')
         file.write(f'.PARAM	loadratio = {load_ratio}\n')
-        file.write('''           
+        file.write("\n\n")
+        file.write(".TRAN	20n '1/FR/2'\n")
 
-
-.TRAN	20n '1/FR/2'
-
-******************** Print node *****************************************
-
-\n''')
-
-        # file.write(f'.PRINT v(scan_l) v(scan_r) \n')
-        # file.write(f'.PRINT v(scan<1>) \n')
-        # for i in range(si, number_scanline_pixel, si):
-        #     file.write(f'.PRINT v(scan<{i}>) \n')
-        # file.write(f'.PRINT v(scan<{number_scanline_pixel+1}>)\n') 
-        
+        file.write("******************** Print node *****************************************\n")
         ## WHITE
-        if number_dataline_pixel == 1:
-            for i in range(1, number_scanline_pixel + 1, si):
-                file.write(f'.PRINT V(X1<{i}>.XWHITE.drg) \n')
-            for i in range(1, number_scanline_pixel, si):
-                file.write(f'.PRINT V(X1<{i}>.XWHITE.drs) \n')
-            for i in range(1, number_scanline_pixel, si):
-                file.write(f'.PRINT I(X1<{i}>.XWHITE.XEL.d1) \n')
+        for x in range(1,number_scanline_pixel+1):
+            for y in range(1,number_dataline_pixel+1):
+                if (x % step_x == 1) and (y % step_y == 0):
+                    file.write(f".PRINT v(dataw{x}<{y}>)\n")
+                    file.write(f".PRINT V(X_{x}_{y}.XWHITE.drg)\n")
+                    file.write(f".PRINT V(X_{x}_{y}.XWHITE.drs)\n")
+                    file.write(f".PRINT I(X_{x}_{y}.XWHITE.XEL.d1)\n")
+
+            if (x % step_x == 1):
+                file.write(f".PRINT v(dataw{x}<2>)\n")
+                file.write(f".PRINT V(X_{x}_2.XWHITE.drg)\n")
+                file.write(f".PRINT V(X_{x}_2.XWHITE.drs)\n")
+                file.write(f".PRINT I(X_{x}_2.XWHITE.XEL.d1)\n")
+
+        for x in range(1,number_scanline_pixel+1):
+            if x % step_x == 1:
+                file.write(f".PRINT v(data_w{x})\n")
+                file.write(f".PRINT v(data_wu{x})\n")
         
-        elif number_scanline_pixel == 1:
-            for j in range(2, number_dataline_pixel + 1, si):
-                file.write(f'.PRINT V(X1<{j}>.XWHITE.drg) \n')
-            for j in range(2, number_dataline_pixel + 1, si):
-                file.write(f'.PRINT V(X1<{j}>.XWHITE.drs) \n')
-            for j in range(2, number_dataline_pixel + 1, si):
-                file.write(f'.PRINT I(X1<{j}>.XWHITE.XEL.d1) \n')
+        for y in range(1,number_dataline_pixel+1):
+            if y % step_y == 0:
+                file.write(f".PRINT v(scan1<{y}>)\n")
 
-        else:
-            for i in range(0, number_scanline_pixel, si):
-                for j in range(0, number_dataline_pixel, si):                
-                    id = (j+1) + i * number_dataline_pixel
-                    file.write(f'.PRINT V(X1<{id}>.scan_l) \n')
-                    file.write(f'.PRINT V(X1<{id}>.DATA_U<2>) \n')
+        file.write(f".PRINT v(scan1<2>)\n")
+        file.write("\n\n")
+        file.write(".GLOBAL GND\n")
+        file.write("*************************************************************************\n")
+        file.write(".END\n")
 
-            for i in range(0, number_scanline_pixel, si):
-                for j in range(0, number_dataline_pixel, si):                
-                    id = (j+1) + i * number_dataline_pixel
-                    file.write(f'.PRINT V(X1<{id}>.XWHITE.drg) \n')
-            
-            for i in range(0, number_scanline_pixel, si):
-                for j in range(0, number_dataline_pixel, si):         
-                    id = (j+1) + i * number_dataline_pixel
-                    file.write(f'.PRINT V(X1<{id}>.XWHITE.drs) \n')
-
-            for i in range(0, number_scanline_pixel, si):
-                for j in range(0, number_dataline_pixel, si):         
-                    id = (j+1) + i * number_dataline_pixel
-                    file.write(f'.PRINT I(X1<{id}>.XWHITE.XEL.d1) \n')
-
-        file.write('''
-.GLOBAL GND
-*************************************************************************
-
-.END
-\n''')
     def ExecuteCommand( curCmd ):
         print( curCmd )
         sp.call( curCmd, shell=True)
+
     s = time.time()
     ExecuteCommand(f'hspice -i {os.path.join(pixel_dir, sp_name)} -o {os.path.join(data_dir, lis_name)}')
     print(f"{name} : TIME {time.time() - s:.2f}")

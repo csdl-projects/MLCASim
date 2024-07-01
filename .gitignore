@@ -6,3 +6,6 @@
 /src/core.*
 /checkpoint/
 original_data/
+/run/
+/example/
+/run_scripts/wandb/
