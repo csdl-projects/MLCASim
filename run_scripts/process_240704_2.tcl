@@ -1,0 +1,1 @@
+python3 ../src/main.py -c 240704_2

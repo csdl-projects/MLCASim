@@ -5,10 +5,116 @@ import torch
 import torch.nn as nn
 from torch.multiprocessing import Pool
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+from layer import (
+    ConditionalMixerLayer,
+    ConditionalFeatureMixing,
+    CircuitNorm2d,
+    feature_to_data,
+    data_to_feature,
+)
+
+class CircuitMixer(nn.Module):
+    def __init__(
+        self,
+        data_length : int,
+        pred_length : int,
+        activation : str = "gelu",
+        num_blocks: int = 2,
+        dropout_rate: float = 0.1,
+        input_channel: int = 1,
+        hidden_channel: int = 10,
+        param_length: int = 10,
+        hidden_size: int = 256,
+        output_channel: int = None,
+        is_norm_before: bool = False,
+        norm_type: str = "layer",
+    ):
+        super().__init__()
+
+        if hasattr(F, activation):
+            activation = getattr(F, activation)
+        else:
+            raise ValueError(f"Unknown activation function: {activation}")
+        
+        assert norm_type in {
+            "batch",
+            "layer",
+        }, f"Invalid norm_type: {norm_type}, must be one of batch, layer."
+        norm_type = CircuitNorm2d if norm_type == "batch" else nn.LayerNorm
+
+        self.fc1 = nn.Linear(data_length, pred_length)
+        self.fc_out = nn.Linear(hidden_channel, output_channel or input_channel)
+
+        self.feature_mixing = ConditionalFeatureMixing(
+            data_length=pred_length,
+            input_channel=input_channel,
+            output_channel=hidden_channel,
+            param_length=param_length,
+            hidden_size=hidden_size,
+            activation=activation,
+            dropout_rate=dropout_rate,
+            is_norm_before=is_norm_before,
+            norm_type=norm_type,
+        )
+        
+        self.conditional_mixer = self._build_mixer(
+            num_blocks,
+            hidden_channel,
+            pred_length,
+            hidden_size = hidden_size,
+            param_length = param_length,
+            activation = activation,
+            dropout_rate = dropout_rate,
+            is_norm_before = is_norm_before,
+            norm_type = norm_type,
+        )
+
+    @staticmethod
+    def _build_mixer(
+        num_blocks: int,
+        hidden_channel: int,
+        pred_length: int,
+        **kwargs,
+    ):
+        channels = (num_blocks) * [hidden_channel]
+        return nn.ModuleList([
+            ConditionalMixerLayer(
+                data_length = pred_length,
+                input_channel = in_channel,
+                output_channel = out_channel,
+                **kwargs,
+            )
+            for in_channel, out_channel in zip(channels[:-1], channels[1:])
+        ])
+    
+    def forward(
+        self,
+        x: torch.Tensor,
+        x_param: torch.Tensor,
+    ) -> torch.Tensor:
+        # print(x.shape)
+        x = x.unsqueeze(-1)
+        x = feature_to_data(x)
+        x = self.fc1(x)
+        x = data_to_feature(x)
+        x, _ = self.feature_mixing(x, x_param)
+        # print("Feature Mixing", x.shape)
+        for mixer in self.conditional_mixer:
+            x = mixer(x, x_param)
+
+        # print("FC Out", x.shape)        
+        x = self.fc_out(x)
+        return x
+        
+
 class FastModel(nn.Module):
     def __init__(self, args, num_param, num_output, PE=0, mode=0):
         super(FastModel, self).__init__()
-        self.lstm_hidden = int(args['lstm_hidden_size'])
+        self.lstm_hidden = int(args['hidden_size'])
 
 
         self.encoder = nn.Sequential(
@@ -28,9 +134,9 @@ class FastModel(nn.Module):
 class FastCNNLSTM(nn.Module):
     def __init__(self, args, num_param, num_output, PE=0, mode = 0):
         super(FastCNNLSTM, self).__init__()
-        self.lstm_hidden = int(args['lstm_hidden_size'])
-        # self.seq_len = int(args['lstm_window_size'] - 1)
-        self.seq_len = int(args['lstm_window_size'])
+        self.lstm_hidden = int(args['hidden_size'])
+        # self.seq_len = int(args['window_size'] - 1)
+        self.seq_len = int(args['window_size'])
         self.n_layers = int(args['lstm_num_layers'])
         self.batch_size = args['batch_size']
         self.PE = PE
@@ -82,8 +188,8 @@ class Model(nn.Module):
 class CNNLSTM(nn.Module):
     def __init__(self, args, num_param, num_output, PE=0, mode = 0):
         super(CNNLSTM, self).__init__()
-        self.lstm_hidden = int(args['lstm_hidden_size'])
-        self.seq_len = int(args['lstm_window_size'] - 1)
+        self.lstm_hidden = int(args['hidden_size'])
+        self.seq_len = int(args['window_size'] - 1)
         self.n_layers = int(args['lstm_num_layers'])
         self.batch_size = args['batch_size']
         self.PE = PE

@@ -17,54 +17,6 @@ from dataset import load_datasets
 from model import *
 from torchtsmixer import TSMixerExt
 
-sweep_config = {
-    "project": "MLCASim",
-    "method": "grid",
-    # "method": "bayes",
-    "metric": {
-        "goal": "minimize",
-        "name": "MSE"
-    },
-    "parameters": {
-        "cases": {
-            # "values": [[(1920, 1, 8.0, 0.008, 2, 4.8, 2), (1920, 1, 8.0, 0.008, 2, 4.3, 2), (1920, 1, 8.0, 0.008, 2, 3.9, 2), (1920, 1, 8.0, 0.008, 2, 3.6, 2), (1920, 1, 8.0, 0.008, 2, 3.3, 2), (1920, 1, 8.0, 0.008, 2, 3.1, 2)]],
-            # "values": [[(1920, 1, 8.0, 0.008, 2, 4.8, 2), (1920, 1, 8.0, 0.008, 2, 3.3, 2)]],
-            "values": [[ (1, 1080, 8.0, 0.008, 2, 4.8, 2), (1, 1080, 8.0, 0.008, 2, 4.3, 2), (1, 1080, 8.0, 0.008, 2, 3.9, 2), (1, 1080, 8.0, 0.008, 2, 3.6, 2), (1, 1080, 8.0, 0.008, 2, 3.3, 2), (1, 1080, 8.0, 0.008, 2, 3.1, 2)]],
-        },
-        "learning_rate": {
-            "values": [1e-4]
-        },
-        "input_size": {
-            "values" : [3]
-        },
-        "lstm_window_size": {
-            "values" : [50]
-        },
-        "lstm_num_layers": {
-            "values" : [1]
-        },
-        "lstm_hidden_size": {
-            "values" : [100]
-            # "values" : [120]
-            # "values" : [150]
-        },
-        "start": {
-            "values":[0]
-        },
-        "end": {
-            # "values":[20000]
-            "values":[200000]
-        },
-        "resolution": {
-            # "values":[5e-2]
-            "values":[5e-3]
-        },
-        "batch_size": {
-            # "values":[30]
-            "values":[50]
-        },
-    }
-}
 
 def get_model(args, num_param, PE = 0, mode = 0, option=0):
     if option == 0:
@@ -78,11 +30,11 @@ def get_model(args, num_param, PE = 0, mode = 0, option=0):
 
     if option == 3:
         model = TSMixerExt(
-            sequence_length = args['lstm_window_size'],
-            prediction_length = int((args['end'] - args['start']) * args['resolution']) - args['lstm_window_size'],
+            sequence_length = args['window_size'],
+            prediction_length = int((args['end'] - args['start']) * args['resolution']) - args['window_size'],
             input_channels = 1,
             extra_channels = 1,
-            hidden_channels = args['lstm_hidden_size'],
+            hidden_channels = args['hidden_size'],
             static_channels = num_param,
             output_channels = 1,
         ).cuda()
@@ -96,7 +48,7 @@ def train(args, model, train_loader, loss_function, optimizer, schedular, epoch,
 
     start = time.time()
     total = int((args['end'] - args['start']) * args['resolution'])
-    window = args['lstm_window_size']
+    window = args['window_size']
 
     for x, y_true, params in train_loader:
         # torch.cuda.empty_cache()
@@ -110,8 +62,6 @@ def train(args, model, train_loader, loss_function, optimizer, schedular, epoch,
         result = x.clone()        
         r = model.forward(
             x_hist = x.unsqueeze(-1),
-            x_extra_hist = torch.zeros(args['batch_size'], window, 1, requires_grad=True).cuda(),
-            x_extra_future = torch.zeros(args['batch_size'], total-window, 1, requires_grad=True).cuda(),
             x_static = params
         )
         result = torch.cat([result, r.squeeze()], dim=1)
@@ -141,7 +91,7 @@ def plot(args, model, plot_loader, name, best_loss, epoch):
     min_max_dir = '/project/common/LGD/spice_data/raw/max_min'
     final = {}
     total = int((args['end'] - args['start']) * args['resolution'])
-    window = args['lstm_window_size']
+    window = args['window_size']
 
     with torch.no_grad():        
         model.eval()
@@ -154,8 +104,6 @@ def plot(args, model, plot_loader, name, best_loss, epoch):
             
             r = model.forward(
                 x_hist = x.unsqueeze(-1),
-                x_extra_hist = torch.zeros(args['batch_size'], window, 1, requires_grad=True).cuda(),
-                x_extra_future = torch.zeros(args['batch_size'], total-window, 1 , requires_grad=True).cuda(),
                 x_static = params
             )
             result = torch.cat([result, r.squeeze()], dim=1)
@@ -265,8 +213,6 @@ def main():
     parser.add_argument('-d', '--device', required=True, type=str, help='gpu-id')
     parser.add_argument('-r', '--resume', required=False, type=int, default = 0, help='True when resume')
     parser.add_argument('-v', '--verbose', required=False, type=int, default = 0, help='True when verbose mode')
-    # parser.add_argument('-t', '--test', required=False, type=int, default = 0, help='True when want FINAL Test')
-    parser.add_argument('-si', '--sample_num', required=False, type=int, default = 30, help='Number of sample hop') 
     parser.add_argument('-p', '--plot', required=False, type=int, default = 1, help='True when plot mode')
     args = parser.parse_args()
 
@@ -277,11 +223,11 @@ def main():
 
     CHECKPOINT_PATH = f'../checkpoint/'
     base_name = args['name']
-    lstm_window_size = args['lstm_window_size']
+    window_size = args['window_size']
     lstm_num_layers = args['lstm_num_layers']
-    lstm_hidden_size = args['lstm_hidden_size']
+    hidden_size = args['hidden_size']
 
-    name = f'{base_name}_{lstm_window_size}_{lstm_num_layers}_{lstm_hidden_size}'
+    name = f'{base_name}_{window_size}_{lstm_num_layers}_{hidden_size}'
     run.name = name
     if not os.path.isdir(CHECKPOINT_PATH):
         os.makedirs(CHECKPOINT_PATH, exist_ok=True)

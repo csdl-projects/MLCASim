@@ -53,14 +53,14 @@ class PA_Dataset(torch.utils.data.Dataset):
 					d = data[index, int(args['start']):int(args['end']):int(1/args['resolution'])]
 					# print(d.shape)
 					t = torch.tensor([index], dtype=torch.float32)
-					self.datas.append((d[0:args['lstm_window_size']], d, torch.cat([param, t])))
+					self.datas.append((d[0:args['window_size']], d, torch.cat([param, t])))
 			
 			else:
 				d = data[type]
 				d = d[int(args['start']):int(args['end']):int(1/args['resolution'])]
 				# print(d.shape)
 				t = torch.tensor([type], dtype=torch.float32)
-				self.datas.append((d[0:args['lstm_window_size']], d, torch.cat([param, t])))
+				self.datas.append((d[0:args['window_size']], d, torch.cat([param, t])))
 
 	def __len__(self):
 		return len(self.datas)

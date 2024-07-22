@@ -11,23 +11,11 @@ import metric
 import wandb
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+import yaml
 
 
 from dataset import load_datasets
-from model import *
-
-
-def get_model(args, num_param, PE = 0, mode = 0, option=0):
-    if option == 0:
-        model = Model(args, num_param, PE, mode)
-        
-    if option == 1:
-        model = FastCNNLSTM(args, num_param, 1, PE, mode)
-
-    if option == 2:
-        model = FastModel(args, num_param, 1, PE, mode)
-
-    return model
+from get_model import get_model
 
 
 def train(args, model, train_loader, loss_function, optimizer, schedular, epoch, mode):
@@ -43,22 +31,26 @@ def train(args, model, train_loader, loss_function, optimizer, schedular, epoch,
         x = x.to(torch.float32).cuda()
         y_true = y_true.to(torch.float32).cuda()       
         params = params.to(torch.float32).cuda()
-        # print(x.shape, y_true.shape, params.shape)
 
         optimizer.zero_grad()
         model_input = x.clone()
         result = x.clone()
-        for index in range(total - args["lstm_window_size"]): 
-            t = torch.full((args['batch_size'], 1), index/1000.0, dtype=torch.float32).cuda()
-            t_params = torch.cat((params, t), dim=1)
-            r = model(model_input, t_params).unsqueeze(1)
-            result = torch.cat([result, r], dim=1)
-            model_input = torch.cat([model_input[:, 1:], r], dim=1)
+        if args['model_option'] != 3:
+            for index in range(total - args["window_size"]): 
+                t = torch.full((args['batch_size'], 1), index/1000.0, dtype=torch.float32).cuda()
+                t_params = torch.cat((params, t), dim=1)
+                r = model(model_input, t_params).unsqueeze(1)
+                result = torch.cat([result, r], dim=1)
+                model_input = torch.cat([model_input[:, 1:], r], dim=1)
+
+        else:
+            result = model(x, params)
+            result = torch.cat([x, result.squeeze()], dim=1)
 
         loss = loss_function(result, y_true)
         loss.backward()
         optimizer.step()
-        # schedular.step(loss)
+        schedular.step()
         
         train_losses.append(float(loss))            
         times.append(time.time()-start)
@@ -90,13 +82,16 @@ def plot(args, model, plot_loader, name, best_loss, epoch):
 
             model_input = x.clone()
             result = x.clone()
-            for index in range(total - args["lstm_window_size"]): 
-                t = torch.full((args['batch_size'], 1), index/1000.0, dtype=torch.float32).cuda()
-                t_params = torch.cat((params, t), dim=1)
-                r = model(model_input, t_params).unsqueeze(1)
-                result = torch.cat([result, r], dim=1)
-                model_input = torch.cat([model_input[:, 1:], r], dim=1)
-
+            if args['model_option'] != 3:
+                for index in range(total - args["window_size"]): 
+                    t = torch.full((args['batch_size'], 1), index/1000.0, dtype=torch.float32).cuda()
+                    t_params = torch.cat((params, t), dim=1)
+                    r = model(model_input, t_params).unsqueeze(1)
+                    result = torch.cat([result, r], dim=1)
+                    model_input = torch.cat([model_input[:, 1:], r], dim=1)
+            else:
+                result = model(x, params)
+                result = torch.cat([x, result.squeeze()], dim=1)
             R2   = metric.R2Score(result, y_true)
             MAPE = metric.MAPE(result, y_true)
             MAE  = metric.MAE(result, y_true)
@@ -165,7 +160,8 @@ def process(args, train_loader, plot_loader, CHECKPOINT_PATH, name, maxepoch):
     loss_function = torch.nn.HuberLoss(reduction='mean', delta=0.5)
     wandb.watch(model, loss_function, log="all", log_freq=10)
     # scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer = optimizer, lr_lambda = lambda epoch: 0.95 ** epoch)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer = optimizer, mode='min', factor=0.1, patience = 5, verbose = args['verbose'])
+    # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer = optimizer, mode='min', factor=0.5, patience = 100)
+    scheduler =  torch.optim.lr_scheduler.StepLR(optimizer, step_size=500, gamma=0.9)
     scheduler.last_epoch = start_epoch - 1
     if args['verbose']:
         print(f'Training starts, epoch : {scheduler.last_epoch + 1}' )
@@ -193,39 +189,21 @@ def process(args, train_loader, plot_loader, CHECKPOINT_PATH, name, maxepoch):
 
 def main():
     torch.set_printoptions(precision=6)
-    parser = ArgumentParser(description='ML Circuit Array Simulation Version 3.0')
-    parser.add_argument('-n', '--name', required=False, type=str, default = 't', help='Name of model')
-    parser.add_argument('-e', '--epoch', required=True, type=int, default = '100', help='Number of training epoch')
-    parser.add_argument('-o', '--model_option', required=False, type=int, default = '0', help='Number of model type')
-    parser.add_argument('-pe', '--PE', required=False, type=int, default = 0, help='Positional Encoding')
-    parser.add_argument('-m', '--mode', required=False, type=int, default = 0, help='Positional Encoding Sum or Concatenate')
-    parser.add_argument('-d', '--device', required=True, type=str, help='gpu-id')
-    parser.add_argument('-r', '--resume', required=False, type=int, default = 0, help='True when resume')
-    parser.add_argument('-v', '--verbose', required=False, type=int, default = 0, help='True when verbose mode')
-    # parser.add_argument('-t', '--test', required=False, type=int, default = 0, help='True when want FINAL Test')
-    parser.add_argument('-p', '--plot', required=False, type=int, default = 1, help='True when plot mode')
-    parser.add_argument('--config', required=True, type=int, default = 1, help='Config file')
+    torch.set_default_dtype(torch.float32)
+    os.environ["WANDB_SILENT"] = "true"
 
-
-
-
-
-    
-    args = parser.parse_args()
-    os.environ["WANDB_CONFIG_DIR"] = "../configs"
-
-    run = wandb.init(project = "MLCASim", config=)
-    wandb.config.update(args)
+    run = wandb.init(project = "MLCASim")
     args = wandb.config
     os.environ["CUDA_VISIBLE_DEVICES"] = args['device']
 
     CHECKPOINT_PATH = f'../checkpoint/'
     base_name = args['name']
-    lstm_window_size = args['lstm_window_size']
-    lstm_num_layers = args['lstm_num_layers']
-    lstm_hidden_size = args['lstm_hidden_size']
+    window_size = args['window_size']
+    num_layers = args['num_layers']
+    hidden_size = args['hidden_size']
+    hidden_channel = args['hidden_channel']
 
-    name = f'{base_name}_{lstm_window_size}_{lstm_num_layers}_{lstm_hidden_size}'
+    name = f'{base_name}_{window_size}_{num_layers}_{hidden_size}_{hidden_channel}'
     run.name = name
 
     torch.manual_seed(42)
@@ -242,13 +220,21 @@ def main():
     index_to_name = ['DRG', 'DRS', 'DIODE']
     # Dataset generation
     if args['epoch'] > 0:
-        for type in range(args['input_size']):
-        # for type in [2]:
+        # for type in range(args['input_size']):
+        for type in [2]:
             train_loader, _ = load_datasets(args, type, 'train')
             process(args, train_loader, train_loader, CHECKPOINT_PATH, f'{name}_{index_to_name[type]}', args['epoch'])
 
     print("time (Total)   : ", time.time() - end_dataset)
 
-if __name__ == '__main__':
-    sweep_id = wandb.sweep(sweep=sweep_config, project=sweep_config['project'])    
+if __name__ == '__main__':    
+    parser = ArgumentParser(description='ML Circuit Array Simulation Version 3.0')
+    parser.add_argument('--config_dir', required=False, type=str, default = '../configs', help='Config directory')
+    parser.add_argument('-c','--config_file', required=False, type=str, default = '../configs', help='Config directory')
+    args = parser.parse_args()
+
+    with open(os.path.join(args.config_dir, f'{args.config_file}.yaml')) as f:
+        config = yaml.load(f, Loader=yaml.FullLoader)
+
+    sweep_id = wandb.sweep(sweep=config, project=config['project'])
     wandb.agent(sweep_id, function = main)

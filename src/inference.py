@@ -20,9 +20,9 @@ config = {
     "cases": [[64, 10, 36, 10, 8.0, 0.008, 2, 3.0, 2],],
     # "cases": [[2, 2, 1080, 50, 8.0, 0.008, 2, 3.0, 2],],
 
-    "lstm_window_size": 10,
+    "window_size": 10,
     "lstm_num_layers": 1,
-    "lstm_hidden_size": 50,
+    "hidden_size": 50,
     "input_size": 3,
     "start": 0,
     # "end": 15000,
@@ -64,11 +64,12 @@ if __name__ == '__main__':
     CHECKPOINT_PATH = f'../checkpoint/'
     
     base_name = args['name']
-    lstm_window_size = args['lstm_window_size']
+    window_size = args['window_size']
     lstm_num_layers = args['lstm_num_layers']
-    lstm_hidden_size = args['lstm_hidden_size']
+    hidden_size = args['hidden_size']
+    hidden_channel = args['hidden_channel']
 
-    name = f'{base_name}_{lstm_window_size}_{lstm_num_layers}_{lstm_hidden_size}'
+    name = f'{base_name}_{window_size}_{lstm_num_layers}_{hidden_size}_{hidden_channel}'
     start = time.time()
     cases = args['cases']
     if args['verbose']:
@@ -98,7 +99,7 @@ if __name__ == '__main__':
                 x = x.to(torch.float32).cuda()
                 y_true = y_true.to(torch.float32).cuda()            
                 params = params.to(torch.float32).cuda() 
-                window_size = args['lstm_window_size']
+                window_size = args['window_size']
 
                 s = time.time()
                 input = x.clone()
