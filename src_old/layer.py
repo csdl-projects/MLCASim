@@ -1,17 +1,3 @@
-##################################################################
-## Base layer code to consist CircuitMixer                      ##
-## CircuitMixer is a Mixer based prediction model               ##
-## CircuitNorm2d : Custom normalization layer                   ##
-## MixerLayer : Mixer layer for CircuitMixer                    ##
-## ConditionalMixerLayer : Mixer layer with conditional input   ##
-## DataMixing : Data mixing layer (time)                        ##
-## FeatureMixing : Feature mixing layer (channel)               ##
-##################################################################
-## Author: Jaeseung Lee                                         ##
-## Date: July 2024                                              ##
-## Affiliation: POSTECH CSDL, South Korea                       ##
-##################################################################
-
 from __future__ import annotations
 
 from collections.abc import Callable

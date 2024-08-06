@@ -4,86 +4,53 @@ import os
 from argparse import ArgumentParser
 import torch
 import metric
+from tqdm import tqdm
 import numpy as np
 import matplotlib.pyplot as plt
-import copy
 
 from dataset import load_datasets
-from getModel import get_model
-import utils
+from model import *
+from utils import *
+
+# from mp_inference import model_inference
+
+config = {
+    # "cases":[[1920, 1, 8.0, 0.008, 2, 5.9, 2], [1920, 1, 8.0, 0.008, 2, 4.3, 2], [1920, 1, 8.0, 0.008, 2, 3.6, 2], [1920, 1, 8.0, 0.008, 2, 3.3, 2]],
+    # "cases":[[1, 1080, 8.0, 0.008, 2, 5.8, 2], [1, 1080, 8.0, 0.008, 2, 4.8, 2], [1, 1080, 8.0, 0.008, 2, 3.9, 2], [1, 1080, 8.0, 0.008, 2, 3.1, 2]],
+    "cases": [[64, 10, 36, 10, 8.0, 0.008, 2, 3.0, 2],],
+    # "cases": [[2, 2, 1080, 50, 8.0, 0.008, 2, 3.0, 2],],
+
+    "window_size": 10,
+    "lstm_num_layers": 1,
+    "hidden_size": 50,
+    "input_size": 3,
+    "start": 0,
+    # "end": 15000,
+    "end": 200000,
+    "resolution": 1e-2,
+    # "resolution": 4e-2,
+    "batch_size": 2,
+}
+
+def get_model(args, num_param, PE = 0, mode = 0, option=0):
+    if option == 0:
+        model = Model(args, num_param, PE, mode).cuda()
+        
+    if option == 1:
+        model = RidgeModel(args, num_param, PE).cuda()
+
+    return model
 
 
-def inference(args, model, plot_loader, name, best_loss):    
-    index_to_name = ['W_DRG', 'W_DRS', 'W_DIODE']
-    final = {}
-    total = int((args['end'] - args['start']) * args['resolution'])
-    results, y_trues = torch.zeros([1, total]), torch.zeros([1, total]).cuda()
-
-    with torch.no_grad():        
-        model.eval()
-        for j, (x, y_true, params) in enumerate(plot_loader):
-            x = x.to(torch.float32).cuda()
-            y_true = y_true.to(torch.float32).cuda()       
-            params = params.to(torch.float32).cuda()
-            model_input = x.clone()
-            result = x.clone()
-            ## model_option 3 is for the mixer model
-            if args['model_option'] != 3:
-                for index in range(total - args["window_size"]): 
-                    t = torch.full((args['batch_size'], 1), index/1000.0, dtype=torch.float32).cuda()
-                    t_params = torch.cat((params, t), dim=1)
-                    r = model(model_input, t_params).unsqueeze(1)
-                    result = torch.cat([result, r], dim=1)
-                    model_input = torch.cat([model_input[:, 1:], r], dim=1)
-            else:
-                result = model(x, params)
-                result = torch.cat([x, result.squeeze()], dim=1)
-
-            results = torch.cat([results, result], dim=0)
-            y_trues = torch.cat([y_trues, y_true], dim=0)
-            MSE = metric.MSE(result, y_true)
-
-            if args['plot'] == 1 and best_loss > MSE:
-                _result = copy.copy(result).clone().detach().cpu().numpy()
-                _y_true = copy.copy(y_true).clone().detach().cpu().numpy()
-                _params = copy.copy(params).tolist()
-
-                for index in range(args['batch_size']):
-                    list_param = _params[index]
-                    np_result = _result[index]
-                    np_y_true = _y_true[index]
-                    final[tuple(list_param)] = np_result
-
-                    plt.clf()                    
-                    x = range(y_true.shape[1])
-                    plt.plot(x, np_result, 'b')    
-                    plt.plot(x, np_y_true, 'g')   
-                    plt.ylim(0, 1)
-
-                    plot_dir = f'../plot/{name}/{index_to_name[int(list_param[-1])]}'
-                    os.makedirs(plot_dir, exist_ok=True)
-                    t_name = f'{int(list_param[0]*2000)}_{int(list_param[1]*2000)}_{int(list_param[2]*2000)}_{int(list_param[3]*2000)}_{int(list_param[4]*8)}_{list_param[5]:.3f}_{int(list_param[6]*2)}_{float(list_param[7]*10):.1f}_{int(list_param[8]*10)}'
-                    plt.savefig(os.path.join(plot_dir, f'{t_name}.png'))
-
-    results = results[1:]
-    y_trues = y_trues[1:]
-
-    R2   = metric.R2Score(results, y_trues)
-    MAPE = metric.MAPE(results, y_trues)
-    MAE  = metric.MAE(results, y_trues)
-    MSE  = metric.MSE(results, y_trues)
-    
-    return [R2, MAPE, MAE, MSE]
-
+  
 if __name__ == '__main__':
-    torch.manual_seed(42)
-    np.random.seed(42)
-
     parser = ArgumentParser(description='LGD Spice Version 2.0')
     parser.add_argument('-n', '--name', required=False, type=str, default = 't', help='Name of model')
     parser.add_argument('-d', '--device', required=True, type=str, help='gpu-id')
+    # parser.add_argument('-d', '--device', required=True, type=int, nargs='+', help='GPU device IDs to use')
     parser.add_argument('-v', '--verbose', required=False, type=int, default = 0, help='True when verbose mode')
     parser.add_argument('-p', '--plot', required=False, type=int, default = 0, help='True when plot mode')
+    # parser.add_argument('-s', '--sample_num', required=False, type=int, default = 30, help='Number of sample hop') 
     parser.add_argument('-o', '--model_option', required=False, type=int, default = '0', help='Number of model type')
     parser.add_argument('-pe', '--PE', required=False, type=int, default = '0', help='Positional Encoding')
     parser.add_argument('-m', '--mode', required=False, type=int, default = 0, help='Positional Encoding Sum or Concatenate')
@@ -102,7 +69,7 @@ if __name__ == '__main__':
     hidden_size = args['hidden_size']
     hidden_channel = args['hidden_channel']
 
-    name = getModelName(base_name, window_size, lstm_num_layers, hidden_size, hidden_channel)
+    name = f'{base_name}_{window_size}_{lstm_num_layers}_{hidden_size}_{hidden_channel}'
     start = time.time()
     cases = args['cases']
     if args['verbose']:
@@ -110,16 +77,9 @@ if __name__ == '__main__':
     index_to_name = ['DRG', 'DRS', 'DIODE']
 
 
-    model = get_model(args, 11, args['model_option'])
-    plot_loader = load_datasets(args, type, 'plot')
-    checkpoint = torch.load(os.path.join(CHECKPOINT_PATH, f'{name}_{index_to_name[type]}_best.pth'))
-    model.load_state_dict(checkpoint['model_state_dict'])
-    model.share_memory()
-    min_max_dir = '/project/common/LGD/spice_data/raw/max_min'
-
     # for type in range(3):
     for type in [2]:
-        model = get_model(args, 11, args['model_option'])
+        model = get_model(args, 11, args['PE'], args['mode'], args['model_option'])
         plot_loader = load_datasets(args, type, 'plot')
         checkpoint = torch.load(os.path.join(CHECKPOINT_PATH, f'{name}_{index_to_name[type]}_best.pth'))
         model.load_state_dict(checkpoint['model_state_dict'])
@@ -186,4 +146,6 @@ if __name__ == '__main__':
         MAE  = statistics.mean(MAE_list)
         MSE  = statistics.mean(MSE_list)
 
+
+                
         print(f"TEST R2 score: {R2:4f}\t MAPE: {MAPE:4f}\t MAE: {MAE:4f}\t MSE: {MSE:4f}\tTIME : {(time.time()-start):.2f}")

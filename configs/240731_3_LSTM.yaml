@@ -1,0 +1,45 @@
+project: MLCASim
+method: grid
+metric: 
+    goal: minimize
+    name: MSE
+parameters:
+    name:
+        values: ['240731_LSTM_exp3']
+    device:
+        value: '1'
+    epoch: 
+        value: 5000    
+    resume:
+        value: 0
+    verbose:
+        value: 0
+    plot:
+        value: 1
+    model_option:
+        value: 2
+    PE:
+        value: 0
+    cases: 
+        value : [ [64, 8, 2, 6, 8.0, 0.008, 2, 3.1, 2], [64, 8, 2, 6, 8.0, 0.008, 2, 2.9, 2], [64, 8, 2, 6, 8.0, 0.008, 2, 2.7, 2], [2, 8, 36, 6, 8.0, 0.008, 2, 3.1, 2], [2, 8, 36, 6, 8.0, 0.008, 2, 2.9, 2], [2, 8, 36, 6, 8.0, 0.008, 2, 2.7, 2] ]
+    learning_rate: 
+        values: [0.0005]
+    input_size: 
+        values : [3]
+    window_size: 
+        values : [10]
+    num_layers: 
+        values : [1]
+    hidden_size: 
+        values : [128]
+    hidden_channel: 
+        values : [64]
+    start: 
+        values: [0]
+    end: 
+        values: [200000]
+    resolution: 
+        values: [1e-3]
+    batch_size: 
+        values: [30]
+    

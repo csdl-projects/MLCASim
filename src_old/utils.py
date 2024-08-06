@@ -1,14 +1,5 @@
-##################################################################
-## 1. CreateDirectory : Create a directory if it does not exist ##
-## 2. ExecuteCommand : Execute a command                        ##
-## 3. _float :  Convert a string to a float                     ##
-## 4. plot : Plot a graph                                       ##
-## 5. dual_plot : Plot two data into graphs                     ##
-##################################################################
-## Author: Jaeseung Lee                                         ##
-## Date: July 2024                                              ##
-## Affiliation: POSTECH CSDL, South Korea                       ##
-##################################################################
+### userutil.py
+### user utilization tools
 
 import os
 import subprocess as sp
@@ -16,7 +7,6 @@ import decimal
 import errno
 import numpy as np
 import matplotlib.pyplot as plt
-
 
 def CreateDirectory( dirName ):
     try:
@@ -59,6 +49,7 @@ def plot(y, path, name, color):
     plt.legend()
     plt.savefig(png_file)
 
+
 def dual_plot(y1, y2, png_path, name, legend1, legend2):
     plt.clf()
     x = range(len(y1))
@@ -76,7 +67,5 @@ def condition_function(label_name, query):
 def getCircuitName(circuitName, config):
     number_scanline_pixel, step_x, number_dataline_pixel, step_y, res, cap, tw_s, VDH, load_ratio = config
     name = f'{circuitName}_{number_scanline_pixel}_{step_x}_{number_dataline_pixel}_{step_y}_{res}_{cap}_{tw_s}_{VDH:.1f}_{load_ratio}'
-    return name
 
-def getModelName(base_name, window_size, lstm_num_layers, hidden_size, hidden_channel):
-    return f'{base_name}_{window_size}_{lstm_num_layers}_{hidden_size}_{hidden_channel}'
+    return name

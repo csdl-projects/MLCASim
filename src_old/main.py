@@ -1,6 +1,7 @@
 ## main.py
 ## parameter sweep script
 
+import statistics
 import time
 import os
 import shutil
@@ -11,21 +12,22 @@ import wandb
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import yaml
-import copy
+
 
 from dataset import load_datasets
-from getModel import get_model
-import utils
+from get_model import get_model
 
 
-def train(args, model, train_loader, loss_function, optimizer, schedular, epoch):
-    train_losses = []
+def train(args, model, train_loader, loss_function, optimizer, schedular, epoch, mode):
+    train_losses, times = [], []
     model.train()
 
     start = time.time()
     total = int((args['end'] - args['start']) * args['resolution'])
 
     for x, y_true, params in train_loader:
+        # torch.cuda.empty_cache()
+        start = time.time()
         x = x.to(torch.float32).cuda()
         y_true = y_true.to(torch.float32).cuda()       
         params = params.to(torch.float32).cuda()
@@ -33,7 +35,6 @@ def train(args, model, train_loader, loss_function, optimizer, schedular, epoch)
         optimizer.zero_grad()
         model_input = x.clone()
         result = x.clone()
-        ## model_option 3 is for the mixer model
         if args['model_option'] != 3:
             for index in range(total - args["window_size"]): 
                 t = torch.full((args['batch_size'], 1), index/1000.0, dtype=torch.float32).cuda()
@@ -49,26 +50,28 @@ def train(args, model, train_loader, loss_function, optimizer, schedular, epoch)
         loss = loss_function(result, y_true)
         loss.backward()
         optimizer.step()
-        schedular.step()        
-        train_losses.append(float(loss))           
+        schedular.step()
+        
+        train_losses.append(float(loss))            
+        times.append(time.time()-start)
 
     train_loss = max(train_losses)
     
-    if args['verbose'] and epoch % 10 == 0:
+    if args['verbose'] and epoch%10 == 0:
         print(f'EPOCH {epoch}\t LOSS : {train_loss:.6f}\tTIME : {(time.time()-start):.2f}')
 
     wandb.log({
         f'Train Loss' : train_loss,
-        f'One Epoch Time' : time.time()-start,
+        f'One Epoch Time' : max(times),
     }, step = epoch)
-
     return model, optimizer
 
 def plot(args, model, plot_loader, name, best_loss, epoch):    
     index_to_name = ['W_DRG', 'W_DRS', 'W_DIODE']
+    R2_list, MAPE_list, MAE_list, MSE_list = [], [], [], []
+    min_max_dir = '/project/common/LGD/spice_data/raw/max_min'
     final = {}
     total = int((args['end'] - args['start']) * args['resolution'])
-    results, y_trues = torch.zeros([1, total]).cuda(), torch.zeros([1, total]).cuda()
 
     with torch.no_grad():        
         model.eval()
@@ -76,9 +79,9 @@ def plot(args, model, plot_loader, name, best_loss, epoch):
             x = x.to(torch.float32).cuda()
             y_true = y_true.to(torch.float32).cuda()       
             params = params.to(torch.float32).cuda()
+
             model_input = x.clone()
             result = x.clone()
-            ## model_option 3 is for the mixer model
             if args['model_option'] != 3:
                 for index in range(total - args["window_size"]): 
                     t = torch.full((args['batch_size'], 1), index/1000.0, dtype=torch.float32).cuda()
@@ -89,40 +92,39 @@ def plot(args, model, plot_loader, name, best_loss, epoch):
             else:
                 result = model(x, params)
                 result = torch.cat([x, result.squeeze()], dim=1)
+            R2   = metric.R2Score(result, y_true)
+            MAPE = metric.MAPE(result, y_true)
+            MAE  = metric.MAE(result, y_true)
+            MSE  = metric.MSE(result, y_true)
 
-            results = torch.cat([results, result], dim=0)
-            y_trues = torch.cat([y_trues, y_true], dim=0)
-            MSE = metric.MSE(result, y_true)
+            R2_list.append(float(R2))
+            MAPE_list.append(float(MAPE))
+            MAE_list.append(float(MAE))
+            MSE_list.append(float(MSE))
 
-            if args['plot'] == 1 and best_loss > MSE:
-                _result = copy.copy(result).clone().detach().cpu().numpy()
-                _y_true = copy.copy(y_true).clone().detach().cpu().numpy()
-                _params = copy.copy(params).tolist()
-
+            if best_loss > MSE:
                 for index in range(args['batch_size']):
-                    list_param = _params[index]
-                    np_result = _result[index]
-                    np_y_true = _y_true[index]
+                    list_param = params[index].tolist()
+
+                    np_result = result[index].clone().detach().cpu().numpy()
+                    np_y_true = y_true[index].clone().detach().cpu().numpy()
                     final[tuple(list_param)] = np_result
+                    if args['plot'] == 1:
+                        plt.clf()                    
+                        x = range(y_true.shape[1])
+                        plt.plot(x, np_result, 'b')    
+                        plt.plot(x, np_y_true, 'g')   
+                        plt.ylim(0, 1)
 
-                    plt.clf()                    
-                    x = range(y_true.shape[1])
-                    plt.plot(x, np_result, 'b')    
-                    plt.plot(x, np_y_true, 'g')   
-                    plt.ylim(0, 1)
+                        plot_dir = f'../plot/{name}/{index_to_name[int(list_param[-1])]}'
+                        os.makedirs(plot_dir, exist_ok=True)
+                        t_name = f'{int(list_param[0]*2000)}_{int(list_param[1]*2000)}_{int(list_param[2]*2000)}_{int(list_param[3]*2000)}_{int(list_param[4]*8)}_{list_param[5]:.3f}_{int(list_param[6]*2)}_{float(list_param[7]*10):.1f}_{int(list_param[8]*10)}'
+                        plt.savefig(os.path.join(plot_dir, f'{t_name}.png'))
 
-                    plot_dir = f'../plot/{name}/{index_to_name[int(list_param[-1])]}'
-                    os.makedirs(plot_dir, exist_ok=True)
-                    t_name = f'{int(list_param[0]*2000)}_{int(list_param[1]*2000)}_{int(list_param[2]*2000)}_{int(list_param[3]*2000)}_{int(list_param[4]*8)}_{list_param[5]:.3f}_{int(list_param[6]*2)}_{float(list_param[7]*10):.1f}_{int(list_param[8]*10)}'
-                    plt.savefig(os.path.join(plot_dir, f'{t_name}.png'))
-
-    results = results[1:]
-    y_trues = y_trues[1:]
-
-    R2   = metric.R2Score(results, y_trues)
-    MAPE = metric.MAPE(results, y_trues)
-    MAE  = metric.MAE(results, y_trues)
-    MSE  = metric.MSE(results, y_trues)
+    R2   = statistics.mean(R2_list)
+    MAPE = statistics.mean(MAPE_list)
+    MAE  = statistics.mean(MAE_list)
+    MSE  = statistics.mean(MSE_list)
     
     wandb.log({
         f"R2" : R2,
@@ -140,7 +142,7 @@ def process(args, train_loader, plot_loader, CHECKPOINT_PATH, name, maxepoch):
     if args['verbose']:
         start = time.time()       
 
-    model = get_model(args, 11, args['model_option'])
+    model = get_model(args, 11, args['PE'], args['mode'], args['model_option'])
     optimizer = torch.optim.Adam(model.parameters(), lr = args['learning_rate'])    
 
     if args['verbose']:
@@ -154,6 +156,7 @@ def process(args, train_loader, plot_loader, CHECKPOINT_PATH, name, maxepoch):
         best_loss = checkpoint['loss'][3]
         start_epoch= checkpoint['epoch'] + 1
 
+    # loss_function = torch.nn.MSELoss()
     loss_function = torch.nn.HuberLoss(reduction='mean', delta=0.5)
     wandb.watch(model, loss_function, log="all", log_freq=10)
     # scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer = optimizer, lr_lambda = lambda epoch: 0.95 ** epoch)
@@ -163,8 +166,8 @@ def process(args, train_loader, plot_loader, CHECKPOINT_PATH, name, maxepoch):
     if args['verbose']:
         print(f'Training starts, epoch : {scheduler.last_epoch + 1}' )
 
-    for epoch in tqdm(range(start_epoch, maxepoch), desc="Training", leave=True):
-        model, optimizer = train(args, model, train_loader, loss_function, optimizer, scheduler, epoch)
+    for epoch in tqdm(range(start_epoch, maxepoch), desc="Training",leave=True):
+        model, optimizer = train(args, model, train_loader, loss_function, optimizer, scheduler, epoch, 'm')
         loss = plot(args, model, plot_loader, name, best_loss, epoch)
 
         state = {
@@ -200,7 +203,7 @@ def main():
     hidden_size = args['hidden_size']
     hidden_channel = args['hidden_channel']
 
-    name = utils.getModelName(base_name, window_size, num_layers, hidden_size, hidden_channel)
+    name = f'{base_name}_{window_size}_{num_layers}_{hidden_size}_{hidden_channel}'
     run.name = name
 
     torch.manual_seed(42)
@@ -227,7 +230,7 @@ def main():
 if __name__ == '__main__':    
     parser = ArgumentParser(description='ML Circuit Array Simulation Version 3.0')
     parser.add_argument('--config_dir', required=False, type=str, default = '../configs', help='Config directory')
-    parser.add_argument('-c','--config_file', required=True, type=str, default = '../configs', help='Config File')
+    parser.add_argument('-c','--config_file', required=False, type=str, default = '../configs', help='Config directory')
     args = parser.parse_args()
 
     with open(os.path.join(args.config_dir, f'{args.config_file}.yaml')) as f:

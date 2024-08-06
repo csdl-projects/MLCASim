@@ -6,10 +6,10 @@ def get_model(args, num_param, PE = 0, mode = 0, option=0):
         model = Model(args, num_param, PE, mode)
         
     if option == 1:
-        model = FastCNNLSTM(args, num_param, 1, PE, mode)
+        model = IHE_CLSTM(args, num_param, 1, PE, mode)
 
     if option == 2:
-        model = FastModel(args, num_param, 1, PE, mode)
+        model = RidgeModel(args, num_param, 1, PE, mode)
     
     if option == 3:
         model = CircuitMixer(
@@ -19,8 +19,8 @@ def get_model(args, num_param, PE = 0, mode = 0, option=0):
             input_channel = 1,
             hidden_channel = args['hidden_channel'],
             hidden_size= args['hidden_size'],
-            param_length = num_param -1,
+            param_length = num_param - 1,
             output_channel = 1,
-        ).cuda()
+        )
 
-    return model
+    return model.cuda()
