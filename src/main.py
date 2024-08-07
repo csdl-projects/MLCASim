@@ -199,8 +199,9 @@ def main():
     num_layers = args['num_layers']
     hidden_size = args['hidden_size']
     hidden_channel = args['hidden_channel']
+    type_index = args['type_index']
 
-    name = utils.getModelName(base_name, window_size, num_layers, hidden_size, hidden_channel)
+    name = utils.getModelName(base_name, window_size, num_layers, hidden_size, hidden_channel, type_index)
     run.name = name
 
     torch.manual_seed(42)
@@ -217,10 +218,9 @@ def main():
     index_to_name = ['DRG', 'DRS', 'DIODE']
     # Dataset generation
     if args['epoch'] > 0:
-        # for type in range(args['input_size']):
-        for type in [2]:
-            train_loader, _ = load_datasets(args, type, 'train')
-            process(args, train_loader, train_loader, CHECKPOINT_PATH, f'{name}_{index_to_name[type]}', args['epoch'])
+        type_index = args['type_index']
+        train_loader, _ = load_datasets(args, type_index, 'train')
+        process(args, train_loader, train_loader, CHECKPOINT_PATH, f'{name}_{index_to_name[type_index]}', args['epoch'])
 
     print("time (Total)   : ", time.time() - end_dataset)
 

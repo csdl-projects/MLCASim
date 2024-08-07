@@ -16,6 +16,7 @@ import decimal
 import errno
 import numpy as np
 import matplotlib.pyplot as plt
+import torch
 
 
 def CreateDirectory( dirName ):
@@ -78,5 +79,41 @@ def getCircuitName(circuitName, config):
     name = f'{circuitName}_{number_scanline_pixel}_{step_x}_{number_dataline_pixel}_{step_y}_{res}_{cap}_{tw_s}_{VDH:.1f}_{load_ratio}'
     return name
 
-def getModelName(base_name, window_size, lstm_num_layers, hidden_size, hidden_channel):
-    return f'{base_name}_{window_size}_{lstm_num_layers}_{hidden_size}_{hidden_channel}'
+def getModelName(base_name, window_size, lstm_num_layers, hidden_size, hidden_channel, type_index):
+    return f'{base_name}_{window_size}_{lstm_num_layers}_{hidden_size}_{hidden_channel}_{type_index}'
+
+def load_maxmin(min_max_dir):
+    max_file, min_file = os.path.join(min_max_dir, f'max.np'), os.path.join(min_max_dir, f'min.np')
+    v_max = np.array([-1e10, -1e10, -1e10, -1e10, -1e10])
+    v_min = np.array([1e10, 1e10, 1e10, 1e10, 1e10])
+    if os.path.exists(max_file) and os.path.exists(min_file):
+        v_max = np.loadtxt(os.path.join(min_max_dir, f'max.np'), dtype=float)
+        v_min = np.loadtxt(os.path.join(min_max_dir, f'min.np'), dtype=float)
+
+    return v_max, v_min
+
+def convert_param_to_tensor(index_scan, number_scanline_pixel, index_data, number_dataline_pixel, res, cap, tw_s, VDH, load_ratio):
+    return torch.tensor([index_scan/2000.0, number_scanline_pixel/2000.0, index_data/2000.0, number_dataline_pixel/2000.0, float(res)/8, cap, float(tw_s)/2.0, float(VDH)/10.0, float(load_ratio)/10.0])
+
+def convert_tensor_to_param(param):
+    index_scan, number_scanline_pixel, index_data, number_dataline_pixel, res, cap, tw_s, VDH, load_ratio, _ = tuple(param)
+    return np.array([index_scan*2000.0, number_scanline_pixel*2000.0, index_data*2000.0, number_dataline_pixel*2000.0, float(res)*8, cap, float(tw_s)*2.0, float(VDH)*10.0, float(load_ratio)*10.0])
+
+def convert_param_to_name(param):
+    print(param)
+    index_scan, number_scanline_pixel, index_data, number_dataline_pixel, res, cap, tw_s, VDH, load_ratio = tuple(param)
+    return f'{index_scan}_{number_scanline_pixel}_{index_data}_{number_dataline_pixel}_{res}_{cap}_{tw_s}_{VDH}_{load_ratio}'
+
+def linear_normalization(x, max, min):
+    return (x - min) / (max - min)
+
+def linear_denormalization(x, max, min):
+    return x * (max - min) + min
+
+def convert_wandb_yaml_to_dict(yaml_data):
+    yaml_data = yaml_data['parameters']
+    args = {}
+    for key, value in yaml_data.items():
+        value = value['value'] if 'value' in value else value        
+        args[key] = value
+    return args

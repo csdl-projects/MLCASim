@@ -5,7 +5,7 @@ metric:
     name: MSE
 parameters:
     name:
-        value: '240802_CircuitMixer_exp2'
+        value: '240802_LSTM_exp2'
     device:
         value: '2'
     epoch: 
@@ -19,7 +19,7 @@ parameters:
     test_plot:
         value: 1
     model_option:
-        value: 3
+        value: 2
     normalization:
         value: 'linear'
     cases: 
@@ -52,4 +52,4 @@ parameters:
     resolution: 
         value : 0.001
     batch_size: 
-        value : 30
+        value : 100

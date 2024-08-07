@@ -13,8 +13,8 @@ from layer import (
     ConditionalMixerLayer,
     ConditionalFeatureMixing,
     CircuitNorm2d,
-    feature_to_data,
-    data_to_feature,
+    feature_to_time,
+    time_to_feature,
 )
 
 class CircuitMixer(nn.Module):
@@ -98,9 +98,9 @@ class CircuitMixer(nn.Module):
     ) -> torch.Tensor:
         # print(x.shape)
         x = x.unsqueeze(-1)
-        x = feature_to_data(x)
+        x = feature_to_time(x)
         x = self.fc1(x)
-        x = data_to_feature(x)
+        x = time_to_feature(x)
         x, _ = self.feature_mixing(x, x_param)
         # print("Feature Mixing", x.shape)
         for mixer in self.conditional_mixer:

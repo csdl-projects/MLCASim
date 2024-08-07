@@ -16,8 +16,8 @@ from layer import (
     ConditionalMixerLayer,
     ConditionalFeatureMixing,
     CircuitNorm2d,
-    feature_to_data,
-    data_to_feature,
+    feature_to_time,
+    time_to_feature,
 )
 
 # params : i, num_scan_pixels, j, num_data_pixels, float(res), cap, tw_s, VDH
@@ -101,9 +101,9 @@ class CircuitMixer(nn.Module):
         x_param: torch.Tensor,
     ) -> torch.Tensor:
         x = x.unsqueeze(-1)
-        x = feature_to_data(x)
+        x = feature_to_time(x)
         x = self.fc1(x)
-        x = data_to_feature(x)
+        x = time_to_feature(x)
         x, _ = self.feature_mixing(x, x_param)
         for mixer in self.conditional_mixer:
             x = mixer(x, x_param)
@@ -122,11 +122,7 @@ class RidgeModel(nn.Module):
         self.lstm_hidden = hidden_size
 
         self.encoder = nn.Sequential(
-            nn.Linear(num_param, int(self.lstm_hidden/2), dtype=torch.float32),
-            nn.ReLU(),
-            nn.Linear(int(self.lstm_hidden/2), int(self.lstm_hidden/2), dtype=torch.float32),
-            nn.ReLU(),
-            nn.Linear(int(self.lstm_hidden/2), int(self.lstm_hidden), dtype=torch.float32),
+            nn.Linear(num_param, int(self.lstm_hidden), dtype=torch.float32),
             nn.ReLU(),
             nn.Linear(int(self.lstm_hidden), num_output, dtype=torch.float32)
         ).cuda()

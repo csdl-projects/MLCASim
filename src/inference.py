@@ -7,183 +7,113 @@ import metric
 import numpy as np
 import matplotlib.pyplot as plt
 import copy
+import yaml
 
 from dataset import load_datasets
 from getModel import get_model
 import utils
 
 
-def inference(args, model, plot_loader, name, best_loss):    
-    index_to_name = ['W_DRG', 'W_DRS', 'W_DIODE']
+if __name__ == '__main__':
+    torch.set_printoptions(precision=6)
+    torch.set_default_dtype(torch.float32)
+
+    torch.manual_seed(42)
+    np.random.seed(42)    
+    parser = ArgumentParser(description='ML Circuit Array Simulation Version 3.0')
+    parser.add_argument('--config_dir', required=False, type=str, default = '../configs', help='Config directory')
+    parser.add_argument('-c','--config_file', required=True, type=str, default = '../configs', help='Config File')
+    pargs = parser.parse_args()
+    with open(os.path.join(pargs.config_dir, f'{pargs.config_file}.yaml')) as f:
+        args = yaml.load(f, Loader=yaml.FullLoader)
+        args = utils.convert_wandb_yaml_to_dict(args)
+
+    os.environ["CUDA_VISIBLE_DEVICES"] = args['device']
+    CHECKPOINT_PATH = f'../checkpoint/'    
+    base_name = args['name']
+    window_size = args['window_size']
+    num_layers = args['num_layers']
+    hidden_size = args['hidden_size']
+    hidden_channel = args['hidden_channel']
+    type_index = args['type_index']
+
+    name = utils.getModelName(base_name, window_size, num_layers, hidden_size, hidden_channel, type_index)
+    print(name)
+    start = time.time()
+
+    cases = args['cases']
+    if args['verbose']:
+        print('SPICE Data Loading Completed')
+
+    index_to_name = ['DRG', 'DRS', 'DIODE']
+    model = get_model(args, 11, args['model_option'])
+    inference_loader = load_datasets(args, type_index, 'inference')
+    checkpoint = torch.load(os.path.join(CHECKPOINT_PATH, f'{name}_{index_to_name[type_index]}_best.pth'))
+    model.load_state_dict(checkpoint['model_state_dict'])
+    model.share_memory()
+    min_max_dir = '/project/common/LGD/spice_data/raw/max_min'
+    v_max, v_min = utils.load_maxmin(min_max_dir)
+
+    start = time.time()
+    R2_list, MAPE_list, MAE_list, MSE_list = [], [], [], []
+    min_max_dir = '/project/common/LGD/spice_data/raw/max_min'
     final = {}
     total = int((args['end'] - args['start']) * args['resolution'])
-    results, y_trues = torch.zeros([1, total]), torch.zeros([1, total]).cuda()
+    results, y_trues, params = torch.zeros([1, total]).cuda(), torch.zeros([1, total]).cuda(), torch.zeros([1, 10]).cuda()
 
-    with torch.no_grad():        
+    with torch.no_grad():
         model.eval()
-        for j, (x, y_true, params) in enumerate(plot_loader):
+        for x, y_true, param in inference_loader:
             x = x.to(torch.float32).cuda()
-            y_true = y_true.to(torch.float32).cuda()       
-            params = params.to(torch.float32).cuda()
+            y_true = y_true.to(torch.float32).cuda()            
+            param = param.to(torch.float32).cuda()             
             model_input = x.clone()
             result = x.clone()
-            ## model_option 3 is for the mixer model
             if args['model_option'] != 3:
                 for index in range(total - args["window_size"]): 
                     t = torch.full((args['batch_size'], 1), index/1000.0, dtype=torch.float32).cuda()
-                    t_params = torch.cat((params, t), dim=1)
-                    r = model(model_input, t_params).unsqueeze(1)
+                    t_param = torch.cat((param, t), dim=1)
+                    r = model(model_input, t_param).unsqueeze(1)
                     result = torch.cat([result, r], dim=1)
                     model_input = torch.cat([model_input[:, 1:], r], dim=1)
             else:
-                result = model(x, params)
+                result = model(x, param)
                 result = torch.cat([x, result.squeeze()], dim=1)
 
             results = torch.cat([results, result], dim=0)
             y_trues = torch.cat([y_trues, y_true], dim=0)
-            MSE = metric.MSE(result, y_true)
-
-            if args['plot'] == 1 and best_loss > MSE:
-                _result = copy.copy(result).clone().detach().cpu().numpy()
-                _y_true = copy.copy(y_true).clone().detach().cpu().numpy()
-                _params = copy.copy(params).tolist()
-
-                for index in range(args['batch_size']):
-                    list_param = _params[index]
-                    np_result = _result[index]
-                    np_y_true = _y_true[index]
-                    final[tuple(list_param)] = np_result
-
-                    plt.clf()                    
-                    x = range(y_true.shape[1])
-                    plt.plot(x, np_result, 'b')    
-                    plt.plot(x, np_y_true, 'g')   
-                    plt.ylim(0, 1)
-
-                    plot_dir = f'../plot/{name}/{index_to_name[int(list_param[-1])]}'
-                    os.makedirs(plot_dir, exist_ok=True)
-                    t_name = f'{int(list_param[0]*2000)}_{int(list_param[1]*2000)}_{int(list_param[2]*2000)}_{int(list_param[3]*2000)}_{int(list_param[4]*8)}_{list_param[5]:.3f}_{int(list_param[6]*2)}_{float(list_param[7]*10):.1f}_{int(list_param[8]*10)}'
-                    plt.savefig(os.path.join(plot_dir, f'{t_name}.png'))
-
-    results = results[1:]
-    y_trues = y_trues[1:]
+            params = torch.cat([params, param], dim=0)
+        
+    results = utils.linear_denormalization(results[1:], v_max[type_index], v_min[type_index])
+    y_trues = utils.linear_denormalization(y_trues[1:], v_max[type_index], v_min[type_index])
+    params = params[1:]
 
     R2   = metric.R2Score(results, y_trues)
     MAPE = metric.MAPE(results, y_trues)
     MAE  = metric.MAE(results, y_trues)
     MSE  = metric.MSE(results, y_trues)
-    
-    return [R2, MAPE, MAE, MSE]
+            
+    print(f"Inference Time : {time.time()-start}")    
+    print(f"TEST R2 score: {R2:4f}\t MAPE: {MAPE:4f}\t MAE: {MAE:4f}\t MSE: {MSE:4f}\tTIME : {(time.time()-start):.2f}")
 
-if __name__ == '__main__':
-    torch.manual_seed(42)
-    np.random.seed(42)
+    np_results = results.clone().detach().cpu().numpy()
+    np_y_trues = y_trues.clone().detach().cpu().numpy()
+    np_params = params.clone().detach().cpu().numpy()
+    #	params = torch.tensor([i, num_scan_pixels, j, num_data_pixels, float(res), cap, tw_s, VDH, load_ratio, type])
+    for index in range(np_results.shape[0]):
+        np_param = utils.convert_tensor_to_param(np_params[index])
+        np_result = np_results[index]
+        # final[tuple(list_param)] = np_result
+        if args['test_plot'] == 1:
+            plt.clf()                    
+            x = range(np_result.shape[0])
+            plt.plot(x, np_result, 'b')    
+            plt.plot(x, np_y_trues[index], 'g')   
+            plt.ylim(0, 1)
 
-    parser = ArgumentParser(description='LGD Spice Version 2.0')
-    parser.add_argument('-n', '--name', required=False, type=str, default = 't', help='Name of model')
-    parser.add_argument('-d', '--device', required=True, type=str, help='gpu-id')
-    parser.add_argument('-v', '--verbose', required=False, type=int, default = 0, help='True when verbose mode')
-    parser.add_argument('-p', '--plot', required=False, type=int, default = 0, help='True when plot mode')
-    parser.add_argument('-o', '--model_option', required=False, type=int, default = '0', help='Number of model type')
-    parser.add_argument('-pe', '--PE', required=False, type=int, default = '0', help='Positional Encoding')
-    parser.add_argument('-m', '--mode', required=False, type=int, default = 0, help='Positional Encoding Sum or Concatenate')
+            plot_dir = f'../plot/{name}/{index_to_name[int(np_param[-1])]}'
+            os.makedirs(plot_dir, exist_ok=True)
+            t_name = utils.convert_param_to_name(np_param)
+            plt.savefig(os.path.join(plot_dir, f'{t_name}.png'))          
 
-    args = parser.parse_args()
-    args = vars(args)
-    args.update(config)
-    # os.environ["CUDA_VISIBLE_DEVICES"] = ','.join(str(gpu_id) for gpu_id in args['gpu_ids'])
-    os.environ["CUDA_VISIBLE_DEVICES"] = args['device']
-
-    CHECKPOINT_PATH = f'../checkpoint/'
-    
-    base_name = args['name']
-    window_size = args['window_size']
-    lstm_num_layers = args['lstm_num_layers']
-    hidden_size = args['hidden_size']
-    hidden_channel = args['hidden_channel']
-
-    name = getModelName(base_name, window_size, lstm_num_layers, hidden_size, hidden_channel)
-    start = time.time()
-    cases = args['cases']
-    if args['verbose']:
-        print('SPICE Data Loading Completed')
-    index_to_name = ['DRG', 'DRS', 'DIODE']
-
-
-    model = get_model(args, 11, args['model_option'])
-    plot_loader = load_datasets(args, type, 'plot')
-    checkpoint = torch.load(os.path.join(CHECKPOINT_PATH, f'{name}_{index_to_name[type]}_best.pth'))
-    model.load_state_dict(checkpoint['model_state_dict'])
-    model.share_memory()
-    min_max_dir = '/project/common/LGD/spice_data/raw/max_min'
-
-    # for type in range(3):
-    for type in [2]:
-        model = get_model(args, 11, args['model_option'])
-        plot_loader = load_datasets(args, type, 'plot')
-        checkpoint = torch.load(os.path.join(CHECKPOINT_PATH, f'{name}_{index_to_name[type]}_best.pth'))
-        model.load_state_dict(checkpoint['model_state_dict'])
-        model.share_memory()
-
-        start = time.time()
-        R2_list, MAPE_list, MAE_list, MSE_list = [], [], [], []
-        min_max_dir = '/project/common/LGD/spice_data/raw/max_min'
-
-        # print(len(plot_loader.dataset))
-        final = {}
-        with torch.no_grad():
-            model.eval()
-            for j, (x, y_true, params) in enumerate(plot_loader):
-                # print(x.shape, y_true.shape, params.shape)
-                
-                x = x.to(torch.float32).cuda()
-                y_true = y_true.to(torch.float32).cuda()            
-                params = params.to(torch.float32).cuda() 
-                window_size = args['window_size']
-
-                s = time.time()
-                input = x.clone()
-                result = x.clone()
-                for index in range(y_true.shape[1] - window_size):
-                    t = torch.full((args['batch_size'], 1), index/1000.0, dtype=torch.float32).cuda()
-                    t_params = torch.cat((params, t), dim=1)
-                    y_pred = model(input, t_params).unsqueeze(1)
-                    input = torch.cat((input[:, 1:], y_pred), dim=1)
-                    result = torch.cat((result, y_pred), dim=1)
-
-                R2   = metric.R2Score(result, y_true)
-                MAPE = metric.MAPE(result, y_true)
-                MAE  = metric.MAE(result, y_true)
-                MSE  = metric.MSE(result, y_true)
-
-                R2_list.append(float(R2))
-                MAPE_list.append(float(MAPE))
-                MAE_list.append(float(MAE))
-                MSE_list.append(float(MSE))
-                
-                # print(f"One Step : {time.time()-s}")    
-
-                #	params = torch.tensor([i, num_scan_pixels, j, num_data_pixels, float(res), cap, tw_s, VDH, load_ratio, type])
-                for index in range(x.shape[0]):
-                    list_param = params[index].tolist()
-                    # print(list_param)
-                    np_result = result[index].clone().detach().cpu().numpy()
-                    final[tuple(list_param)] = np_result
-                    if args['plot'] == 1:
-                        plt.clf()                    
-                        x = range(y_true.shape[1])
-                        plt.plot(x, np_result, 'b')    
-                        plt.plot(x, y_true[index].clone().detach().cpu().numpy(), 'g')   
-                        plt.ylim(0, 1)
-
-                        plot_dir = f'../plot/{name}/{index_to_name[int(list_param[-1])]}'
-                        os.makedirs(plot_dir, exist_ok=True)
-                        t_name = f'{int(list_param[0]*2000)}_{int(list_param[1]*2000)}_{int(list_param[2]*2000)}_{int(list_param[3]*2000)}_{int(list_param[4]*8)}_{list_param[5]:.3f}_{int(list_param[6]*2)}_{float(list_param[7]*10):.1f}_{int(list_param[8]*10)}'
-                        plt.savefig(os.path.join(plot_dir, f'{t_name}.png'))          
-
-        R2   = statistics.mean(R2_list)
-        MAPE = statistics.mean(MAPE_list)
-        MAE  = statistics.mean(MAE_list)
-        MSE  = statistics.mean(MSE_list)
-
-        print(f"TEST R2 score: {R2:4f}\t MAPE: {MAPE:4f}\t MAE: {MAE:4f}\t MSE: {MSE:4f}\tTIME : {(time.time()-start):.2f}")
+    print('Inference Completed')

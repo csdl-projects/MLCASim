@@ -46,7 +46,7 @@ class MixerLayer(nn.Module):
         norm_type: type[nn.Module] = nn.LayerNorm,
     ):
         super().__init__()
-        self.data_mixing = DataMixing(
+        self.data_mixing = TimeMixing(
             data_length,
             input_channel,
             activation,
@@ -83,14 +83,14 @@ class ConditionalMixerLayer(nn.Module):
         norm_type: type[nn.Module] = nn.LayerNorm,
     ):
         super().__init__()
-        self.data_mixing = DataMixing(
+        self.time_mixing = TimeMixing(
             data_length,
             input_channel,
             activation,
             dropout_rate,
             norm_type = norm_type,
         )
-        self.param_mixing = ConditionalFeatureMixing(
+        self.feature_mixing = ConditionalFeatureMixing(
             data_length,
             input_channel,
             output_channel=output_channel,
@@ -103,11 +103,11 @@ class ConditionalMixerLayer(nn.Module):
         )
 
     def forward(self, x: Tensor, x_param: Tensor) -> Tensor:
-        x = self.data_mixing(x)
-        x, _ = self.param_mixing(x, x_param)
+        x = self.time_mixing(x)
+        x, _ = self.feature_mixing(x, x_param)
         return x
 
-class DataMixing(nn.Module):
+class TimeMixing(nn.Module):
     def __init__(
         self,
         data_length: int,
@@ -125,11 +125,11 @@ class DataMixing(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         residual = x
-        x = feature_to_data(x)
+        x = feature_to_time(x)
         x = self.fc1(x)
         x = self.activation(x)
         x = self.dropout(x)
-        x = data_to_feature(x)
+        x = time_to_feature(x)
         return self.norm(residual + x)
 
 class FeatureMixing(nn.Module):
@@ -212,8 +212,8 @@ class ConditionalFeatureMixing(nn.Module):
             torch.cat([x, f], dim = -1),
         ), f.detach())
 
-def data_to_feature(x: Tensor) -> Tensor:
+def time_to_feature(x: Tensor) -> Tensor:
     return x.permute(0, 2, 1)
 
-def feature_to_data(x: Tensor) -> Tensor:
+def feature_to_time(x: Tensor) -> Tensor:
     return x.permute(0, 2, 1)

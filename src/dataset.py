@@ -32,7 +32,7 @@ import utils
 
 class PA_Dataset(torch.utils.data.Dataset):
 	#torch_geometric.data.Dataset:
-	def __init__(self, args, type , mode):
+	def __init__(self, args, type , normalization = 'linear', mode = 'train'):
 		self.args = args
 		self.mode = mode
 		self.lis_dir = '/project/common/LGD/spice_data/output'
@@ -41,6 +41,7 @@ class PA_Dataset(torch.utils.data.Dataset):
 		os.makedirs(self.lis_dir, exist_ok=True)
 		os.makedirs(self.raw_dir, exist_ok=True)
 		
+		self.normalization = utils.linear_normalization if normalization == 'linear' else None
 		self.datas = []
 		
 		## Data Construction
@@ -163,12 +164,7 @@ class PA_Dataset(torch.utils.data.Dataset):
 					
 		min_max_dir = os.path.join(self.raw_dir, 'max_min')
 		os.makedirs(min_max_dir, exist_ok=True)
-		max_file, min_file = os.path.join(min_max_dir, f'max.np'), os.path.join(min_max_dir, f'min.np')
-		v_max = np.array([-1e10, -1e10, -1e10, -1e10, -1e10])
-		v_min = np.array([1e10, 1e10, 1e10, 1e10, 1e10])
-		if os.path.exists(max_file) and os.path.exists(min_file):
-			v_max = np.loadtxt(os.path.join(min_max_dir, f'max.np'), dtype=float)
-			v_min = np.loadtxt(os.path.join(min_max_dir, f'min.np'), dtype=float)
+		v_max, v_min = utils.load_maxmin(min_max_dir)
 			
 		querys = ['scan', 'data', 'drg', 'drs', 'xel']
 		v_max_, v_min_ = [], []				
@@ -178,6 +174,7 @@ class PA_Dataset(torch.utils.data.Dataset):
 				v_max_.append(v_max[index])
 				v_min_.append(v_min[index])
 				continue
+
 			rawdata_ = torch.stack(selected_rows, dim=0)
 			tp_v_max, tp_v_min = torch.max(rawdata_).item(), torch.min(rawdata_).item()
 			v_max_.append(tp_v_max if tp_v_max > v_max[index] else v_max[index])
@@ -195,8 +192,8 @@ class PA_Dataset(torch.utils.data.Dataset):
 			for j in [2] + list(range(step_y, number_dataline_pixel + 1, step_y)):
 				name = f"pixel{i}_{j}.praw"
 				target = f"x_{i}_{j}.xwhite"
-				params = torch.tensor([i/2000.0, number_scanline_pixel/2000.0, j/2000.0, number_dataline_pixel/2000.0, float(res)/8, cap, float(tw_s)/2.0, float(VDH)/10.0, float(load_ratio)/10.0])
-				torch.save(params, os.path.join(param_dir, name))   
+				params = utils.convert_param_to_tensor(i, number_scanline_pixel, j, number_dataline_pixel, res, cap, tw_s, VDH, load_ratio)
+				torch.save(params, os.path.join(param_dir, name))
 				
 				selected_rows = [row for index, row in enumerate(rawdata) if utils.condition_function(label_name[index], target)]
 				selected_labels = [label for label in label_name if utils.condition_function(label, target)]   
@@ -211,7 +208,7 @@ class PA_Dataset(torch.utils.data.Dataset):
 						continue
 					
 					rawdata__ = torch.stack(selected_rows_, dim=0)
-					datas.append((rawdata__ - v_min[index1]) / (v_max[index1] - v_min[index1]))
+					datas.append(self.normalization(rawdata__, v_max[index1], v_min[index1]))
 				
 				if args['verbose']:
 					plot_data.append(datas)
@@ -227,7 +224,9 @@ class PA_Dataset(torch.utils.data.Dataset):
 	
 	def collect_datasets(self, args):
 		data_files = []
-		for c in args['cases']:
+		cases = args['test_cases'] if self.mode == 'inference' else args['cases']
+
+		for c in cases:
 			number_scanline_pixel, step_x, number_dataline_pixel, step_y, res, cap, tw_s, VDH, load_ratio = c
 			pixel_name = utils.getCircuitName('Pixel3T1C', (number_scanline_pixel, step_x, number_dataline_pixel, step_y, f'{res:.1f}', cap, f'TH*{tw_s}', VDH, load_ratio))
 			if args['verbose']:
@@ -290,7 +289,7 @@ class PA_Collator(object):
 
 def load_datasets(args, type = -1, mode = 'train'):	
 	if mode == 'train':				
-		dataset = PA_Dataset(args, type, 'train')
+		dataset = PA_Dataset(args, type, normalization=args['normalization'], mode = mode)
 		dataset_size = len(dataset)
 		# train_size = int(train_ratio * dataset_size)
 		# test_size = dataset_size - train_size
@@ -307,7 +306,7 @@ def load_datasets(args, type = -1, mode = 'train'):
 		return train_loader, test_loader
 	
 	else:
-		dataset = PA_Dataset(args, type, mode='plot')
+		dataset = PA_Dataset(args, type, normalization=args['normalization'], mode = mode)
 		batch_size = args['batch_size']
 
 		# all_indices = list(range(len(dataset)))

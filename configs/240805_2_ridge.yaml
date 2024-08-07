@@ -5,9 +5,9 @@ metric:
     name: MSE
 parameters:
     name:
-        value: '240802_CircuitMixer_exp2'
+        value: '240802_Ridge_exp2'
     device:
-        value: '2'
+        value: '1'
     epoch: 
         value: 5000    
     resume:
@@ -19,7 +19,7 @@ parameters:
     test_plot:
         value: 1
     model_option:
-        value: 3
+        value: 1
     normalization:
         value: 'linear'
     cases: 
@@ -36,7 +36,7 @@ parameters:
     learning_rate: 
         value: 0.0005
     type_index: 
-        value : 2
+        value : 1
     window_size: 
         value : 10
     num_layers: 
@@ -52,4 +52,4 @@ parameters:
     resolution: 
         value : 0.001
     batch_size: 
-        value : 30
+        value : 100
