@@ -7,7 +7,7 @@ parameters:
     name:
         value: '240802_CircuitMixer_exp2'
     device:
-        value: '2'
+        value: '3'
     epoch: 
         value: 5000    
     resume:

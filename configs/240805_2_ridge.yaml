@@ -7,7 +7,7 @@ parameters:
     name:
         value: '240802_Ridge_exp2'
     device:
-        value: '1'
+        value: '2'
     epoch: 
         value: 5000    
     resume:
@@ -36,7 +36,7 @@ parameters:
     learning_rate: 
         value: 0.0005
     type_index: 
-        value : 1
+        value : 2
     window_size: 
         value : 10
     num_layers: 

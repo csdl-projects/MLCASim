@@ -6,7 +6,7 @@ import torch
 import metric
 import numpy as np
 import matplotlib.pyplot as plt
-import copy
+import csv
 import yaml
 
 from dataset import load_datasets
@@ -52,11 +52,12 @@ if __name__ == '__main__':
     model.load_state_dict(checkpoint['model_state_dict'])
     model.share_memory()
     min_max_dir = '/project/common/LGD/spice_data/raw/max_min'
-    v_max, v_min = utils.load_maxmin(min_max_dir)
+    _v_max, _v_min = utils.load_maxmin(min_max_dir)
+    v_max = _v_max[type_index+2]
+    v_min = _v_min[type_index+2]
 
     start = time.time()
     R2_list, MAPE_list, MAE_list, MSE_list = [], [], [], []
-    min_max_dir = '/project/common/LGD/spice_data/raw/max_min'
     final = {}
     total = int((args['end'] - args['start']) * args['resolution'])
     results, y_trues, params = torch.zeros([1, total]).cuda(), torch.zeros([1, total]).cuda(), torch.zeros([1, 10]).cuda()
@@ -80,40 +81,83 @@ if __name__ == '__main__':
                 result = model(x, param)
                 result = torch.cat([x, result.squeeze()], dim=1)
 
+            non_zero_rows = torch.any(param != 0, dim=1)
+            result = result[non_zero_rows]
+            y_true = y_true[non_zero_rows]
+            param = param[non_zero_rows]
+
             results = torch.cat([results, result], dim=0)
             y_trues = torch.cat([y_trues, y_true], dim=0)
             params = torch.cat([params, param], dim=0)
         
-    results = utils.linear_denormalization(results[1:], v_max[type_index], v_min[type_index])
-    y_trues = utils.linear_denormalization(y_trues[1:], v_max[type_index], v_min[type_index])
+    runtime = time.time()-start
+    results = utils.linear_denormalization(results[1:], v_max, v_min)
+    y_trues = utils.linear_denormalization(y_trues[1:], v_max, v_min)
     params = params[1:]
 
-    R2   = metric.R2Score(results, y_trues)
-    MAPE = metric.MAPE(results, y_trues)
-    MAE  = metric.MAE(results, y_trues)
-    MSE  = metric.MSE(results, y_trues)
-            
-    print(f"Inference Time : {time.time()-start}")    
-    print(f"TEST R2 score: {R2:4f}\t MAPE: {MAPE:4f}\t MAE: {MAE:4f}\t MSE: {MSE:4f}\tTIME : {(time.time()-start):.2f}")
+    R2   = float(metric.R2Score(results, y_trues))
+    MAPE = float(metric.MAPE(results, y_trues))
+    MAE  = float(metric.MAE(results, y_trues))
+    MSE  = float(metric.MSE(results, y_trues))
+
+    print(f"TEST R2 score: {R2:4f}\t MAPE: {MAPE:4f}\t MAE: {MAE:3g}\t MSE: {MSE:3g}\tTIME : {runtime:.2f}")
+
+    INFERENCE_DIR = f'../inference/{name}'
+    os.makedirs(INFERENCE_DIR, exist_ok=True)
+
+    with open(f'../inference/{name}/result.csv', 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(['R2', 'MAPE', 'MAE', 'MSE', 'Time'])
+        writer.writerow([R2, MAPE, MAE, MSE, runtime])
 
     np_results = results.clone().detach().cpu().numpy()
     np_y_trues = y_trues.clone().detach().cpu().numpy()
     np_params = params.clone().detach().cpu().numpy()
+
+    pred_processed, true_processed = [], []
+    process_function = utils.integral_current if type_index % 3 == 2 else utils.avg_saturate_voltage
+
+    with open(f'../inference/{name}/result_processed_raw.csv', 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
     #	params = torch.tensor([i, num_scan_pixels, j, num_data_pixels, float(res), cap, tw_s, VDH, load_ratio, type])
-    for index in range(np_results.shape[0]):
-        np_param = utils.convert_tensor_to_param(np_params[index])
-        np_result = np_results[index]
-        # final[tuple(list_param)] = np_result
-        if args['test_plot'] == 1:
-            plt.clf()                    
-            x = range(np_result.shape[0])
-            plt.plot(x, np_result, 'b')    
-            plt.plot(x, np_y_trues[index], 'g')   
-            plt.ylim(0, 1)
-
-            plot_dir = f'../plot/{name}/{index_to_name[int(np_param[-1])]}'
-            os.makedirs(plot_dir, exist_ok=True)
+        for index in range(results.shape[0]):
+            np_param = utils.convert_tensor_to_param(np_params[index])
             t_name = utils.convert_param_to_name(np_param)
-            plt.savefig(os.path.join(plot_dir, f'{t_name}.png'))          
 
-    print('Inference Completed')
+            pred_process = process_function(results[index])
+            true_process = process_function(y_trues[index])
+            pred_processed.append(pred_process)
+            true_processed.append(true_process)
+            writer.writerow([t_name, pred_process, true_process])
+
+            if args['test_plot'] == 1:
+                # plt.clf()                    
+                np_result = np_results[index]
+                x = range(np_result.shape[0])[:25]
+                plt.plot(x, np_result[:25], 'b')    
+                plt.plot(x, np_y_trues[index][:25], 'g')   
+                # plt.ylim(v_min, v_max)
+                plt.ylim(v_min, v_max/4)
+                plt.savefig(os.path.join(INFERENCE_DIR, f'{t_name}.png'))        
+                
+
+    torch_pred_processed = torch.tensor(pred_processed)
+    torch_true_processed = torch.tensor(true_processed)
+
+    if type_index % 3 == 2:
+        print(f"Integral Current Prediction: {torch.mean(torch_pred_processed):.5g}A")
+        print(f"Integral Current True: {torch.mean(torch_true_processed):.5g}A")
+    else:
+        print(f"Saturate Voltage Prediction: {torch.mean(torch_pred_processed):.6f}V")
+        print(f"Saturate Voltage True: {torch.mean(torch_true_processed):.6f}V")
+        
+    R2   = float(metric.R2Score(torch_pred_processed, torch_true_processed))
+    MAPE = float(metric.MAPE(torch_pred_processed, torch_true_processed))
+    MAE  = float(metric.MAE(torch_pred_processed, torch_true_processed))
+    MSE  = float(metric.MSE(torch_pred_processed, torch_true_processed))
+    print(f"Processed R2 score: {R2:4f}\t MAPE: {MAPE:4f}\t MAE: {MAE:3g}\t MSE: {MSE:3g}")
+    
+    with open(f'../inference/{name}/result_processed.csv', 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(['R2', 'MAPE', 'MAE', 'MSE'])
+        writer.writerow([R2, MAPE, MAE, MSE])

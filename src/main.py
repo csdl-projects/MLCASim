@@ -46,6 +46,10 @@ def train(args, model, train_loader, loss_function, optimizer, schedular, epoch)
             result = model(x, params)
             result = torch.cat([x, result.squeeze()], dim=1)
 
+        non_zero_rows = torch.any(params != 0, dim=1)
+        result = result[non_zero_rows]
+        y_true = y_true[non_zero_rows]
+        
         loss = loss_function(result, y_true)
         loss.backward()
         optimizer.step()
@@ -90,6 +94,10 @@ def plot(args, model, plot_loader, name, best_loss, epoch):
                 result = model(x, params)
                 result = torch.cat([x, result.squeeze()], dim=1)
 
+            non_zero_rows = torch.any(params != 0, dim=1)            
+            result = result[non_zero_rows]
+            y_true = y_true[non_zero_rows]
+            
             results = torch.cat([results, result], dim=0)
             y_trues = torch.cat([y_trues, y_true], dim=0)
             MSE = metric.MSE(result, y_true)

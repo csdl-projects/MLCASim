@@ -9,3 +9,8 @@ original_data/
 /run/
 /example/
 /run_scripts/wandb/
+/inference/
+/configs/
+!/configs/basic.yaml
+/run_scripts/*
+!/run_scripts/basic.tcl

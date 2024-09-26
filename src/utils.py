@@ -100,9 +100,8 @@ def convert_tensor_to_param(param):
     return np.array([index_scan*2000.0, number_scanline_pixel*2000.0, index_data*2000.0, number_dataline_pixel*2000.0, float(res)*8, cap, float(tw_s)*2.0, float(VDH)*10.0, float(load_ratio)*10.0])
 
 def convert_param_to_name(param):
-    print(param)
     index_scan, number_scanline_pixel, index_data, number_dataline_pixel, res, cap, tw_s, VDH, load_ratio = tuple(param)
-    return f'{index_scan}_{number_scanline_pixel}_{index_data}_{number_dataline_pixel}_{res}_{cap}_{tw_s}_{VDH}_{load_ratio}'
+    return f'{int(index_scan)}_{int(number_scanline_pixel)}_{int(index_data)}_{int(number_dataline_pixel)}_{res:.3f}_{cap:.1f}_{int(tw_s)}_{VDH:.1f}_{load_ratio:.1f}'
 
 def linear_normalization(x, max, min):
     return (x - min) / (max - min)
@@ -117,3 +116,16 @@ def convert_wandb_yaml_to_dict(yaml_data):
         value = value['value'] if 'value' in value else value        
         args[key] = value
     return args
+
+def avg_saturate_voltage(data):
+    try:
+        threshold = 0.99 * max(data)
+        saturation_index = next(i for i, y in enumerate(data) if y >= threshold)    
+        saturated_data = data[saturation_index:]    
+        return float(torch.mean(saturated_data))
+    except StopIteration:
+        return float(torch.mean(data))
+    
+def integral_current(data):
+    area = torch.mean(data) * 4.0e-03
+    return float(area)
