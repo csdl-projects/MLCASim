@@ -1,0 +1,52 @@
+project: MLCASim
+method: grid
+metric: 
+    goal: minimize
+    name: MSE
+parameters:
+    name:
+        value: 'basic_CircuitMixer_exp3'
+    device:
+        value: '2'
+    epoch: 
+        value: 5  
+    resume:
+        value: 0
+    verbose:
+        value: 0
+    plot:
+        value: 1
+    test_plot:
+        value: 1
+    model_option:
+        value: 3
+    normalization:
+        value: 'linear'
+    cases: 
+        value : [
+            [64, 8, 2, 6, 8.0, 0.008, 2, 3.1, 2], [64, 8, 2, 6, 8.0, 0.008, 2, 2.9, 2], [64, 8, 2, 6, 8.0, 0.008, 2, 2.7, 2], [2, 8, 36, 6, 8.0, 0.008, 2, 3.1, 2], [2, 8, 36, 6, 8.0, 0.008, 2, 2.9, 2], [2, 8, 36, 6, 8.0, 0.008, 2, 2.7, 2],
+        ]
+    test_cases: 
+        value : [
+            [64, 8, 36, 6, 8.0, 0.008, 2, 3.0, 2], [64, 8, 36, 6, 16.0, 0.008, 2, 3.0, 2], [64, 8, 36, 6, 8.0, 0.016, 2, 3.0, 2], [64, 8, 36, 6, 8.0, 0.008, 2, 3.0, 10], 
+        ]
+    learning_rate: 
+        value: 0.0005
+    type_index: 
+        value : 2
+    window_size: 
+        value : 10
+    num_layers: 
+        value : 1
+    hidden_size: 
+        value : 128
+    hidden_channel: 
+        value : 64
+    start: 
+        value : 0
+    end: 
+        value : 200000
+    resolution: 
+        value : 0.001
+    batch_size: 
+        value : 30

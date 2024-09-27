@@ -1,16 +1,18 @@
 /plot/
 /LGD/
+/LGD
 /src/__pycache__/
 /src/wandb/
 /src/*.png
 /src/core.*
-/checkpoint/
-original_data/
+# /checkpoint/
+# original_data/
 /run/
 /example/
 /run_scripts/wandb/
 /inference/
-/configs/
-!/configs/basic.yaml
-/run_scripts/*
-!/run_scripts/basic.tcl
+# /configs/
+# !/configs/basic.yaml
+# /run_scripts
+# !/run_scripts/basic.tcl
+# /run_scripts/*
