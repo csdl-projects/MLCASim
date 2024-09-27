@@ -1,4 +1,5 @@
 /plot/
+/LGD
 /LGD/
 /src/__pycache__/
 /src/wandb/
@@ -10,7 +11,3 @@ original_data/
 /example/
 /run_scripts/wandb/
 /inference/
-/configs/
-!/configs/basic.yaml
-/run_scripts/*
-!/run_scripts/basic.tcl

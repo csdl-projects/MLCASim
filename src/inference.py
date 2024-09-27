@@ -1,4 +1,15 @@
-import statistics
+##################################################################
+## inference.py                                                 ##
+## This file is used to get the prediction model based on the   ##
+## input arguments.                                             ##
+## Make prediction of "test_cases" from config_file             ##
+## and save the results in the inference directory.             ##
+##################################################################
+## Author: Jaeseung Lee                                         ##
+## Date: September 2024                                         ##
+## Affiliation: POSTECH CSDL, South Korea                       ##
+##################################################################
+
 import time
 import os
 from argparse import ArgumentParser

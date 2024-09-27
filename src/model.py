@@ -4,7 +4,7 @@
 ## 3. IHE_CLSTM : CNN-LSTM based prediction model               ## 
 ##################################################################
 ## Author: Jaeseung Lee                                         ##
-## Date: July 2024                                              ##
+## Date: September 2024                                         ##
 ## Affiliation: POSTECH CSDL, South Korea                       ##
 ##################################################################
 
@@ -20,6 +20,7 @@ from layer import (
     data_to_feature,
 )
 
+## CircuitMixer
 # params : i, num_scan_pixels, j, num_data_pixels, float(res), cap, tw_s, VDH
 class CircuitMixer(nn.Module):
     def __init__(
@@ -77,6 +78,7 @@ class CircuitMixer(nn.Module):
             norm_type = norm_type,
         )
 
+    ## Build the mixer
     @staticmethod
     def _build_mixer(
         num_blocks: int,
@@ -110,7 +112,8 @@ class CircuitMixer(nn.Module):
 
         x = self.fc_out(x)
         return x
-        
+
+## RidgeModel
 class RidgeModel(nn.Module):
     def __init__(
         self, 
@@ -131,6 +134,7 @@ class RidgeModel(nn.Module):
         r = self.encoder(params).squeeze()
         return r
 
+## IHE_CLSTM
 class IHE_CLSTM(nn.Module):
     def __init__(
         self,

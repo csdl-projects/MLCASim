@@ -12,9 +12,10 @@
 ## 									configurations				##
 ## 				- collect_datasets : Collect the datasets		##
 ## PA_Collator : Collator class for PA							##
+## load_datasets : Load the datasets based on the arguments		##
 ##################################################################
 ## Author: Jaeseung Lee                                         ##
-## Date: July 2024                                              ##
+## Date: September 2024                                         ##
 ## Affiliation: POSTECH CSDL, South Korea                       ##
 ##################################################################
 
@@ -23,15 +24,13 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 from torch.utils.data.dataset import random_split
-from torch.utils.data import DataLoader, Subset
-import random
+from torch.utils.data import DataLoader
 from itertools import chain
 
 import utils
 
 
 class PA_Dataset(torch.utils.data.Dataset):
-	#torch_geometric.data.Dataset:
 	def __init__(self, args, type , normalization = 'linear', mode = 'train'):
 		self.args = args
 		self.mode = mode
@@ -48,7 +47,6 @@ class PA_Dataset(torch.utils.data.Dataset):
 		data_files = self.collect_datasets(args)
 		## Load the data
 		for raw in data_files:
-			# print(raw)
 			name = raw.split('/')[-1]
 			base_dir = '/'.join(raw.split('/')[:-2])
 			param_dir = os.path.join(base_dir, 'param')
@@ -77,6 +75,7 @@ class PA_Dataset(torch.utils.data.Dataset):
 	def __getitem__(self, idx):
 		return self.datas[idx]
 	
+	## Parse the SPICE output (.lis) to raw data and label
 	def parse_LisFile(self, lis_file, raw_file, label_file):
 		labels = []
 		voltage_data = torch.empty([1,1])
@@ -105,6 +104,7 @@ class PA_Dataset(torch.utils.data.Dataset):
 				for line in lines[index+1:]:
 					if line.strip() == '': 
 						continue
+					## Check the end of the data
 					if line.strip() == 'y':
 						if storeFlag == 0:
 								voltage_data = time[1:].unsqueeze(0)
@@ -115,7 +115,7 @@ class PA_Dataset(torch.utils.data.Dataset):
 					values = line.strip().split()
 					voltages = torch.tensor([float(value) for value in values[1:]]).unsqueeze(1)
 					if storeFlag == 0:
-							## Exception for same timestep (SPICE simulation)
+							## Exception for same timestep (SPICE simulation precision problem)
 							if prev == float(values[0]):
 									prec = prec + 2e-10
 									if prec >= 1e-9:
@@ -134,7 +134,8 @@ class PA_Dataset(torch.utils.data.Dataset):
 		## Save the raw voltage data
 		torch.save(voltage_data, raw_file)
 		return voltage_data.shape
-        
+    
+	## Convert to the dataset based on the configurations
 	def construct_config_datasets(self, args, config, pixel_name, param_dir, datas_dir):
 		number_scanline_pixel, step_x, number_dataline_pixel, step_y, res, cap, tw_s, VDH, load_ratio = config
 		lis_file = os.path.join(self.lis_dir, f'{pixel_name}.lis')
@@ -167,6 +168,7 @@ class PA_Dataset(torch.utils.data.Dataset):
 		v_max, v_min = utils.load_maxmin(min_max_dir)
 			
 		querys = ['scan', 'data', 'drg', 'drs', 'xel']
+		## Update the max and min values for normalization
 		v_max_, v_min_ = [], []				
 		for index, query in enumerate(querys):	
 			selected_rows = [row for i, row in enumerate(rawdata) if utils.condition_function(label_name[i], query)]
@@ -183,6 +185,7 @@ class PA_Dataset(torch.utils.data.Dataset):
 		np.savetxt(os.path.join(min_max_dir, f'max.np'), np.array(v_max_), delimiter=' ', fmt='%s')
 		np.savetxt(os.path.join(min_max_dir, f'min.np'), np.array(v_min_), delimiter=' ', fmt='%s')
 
+		## Construct the torch.dataset
 		data_files = []
 		data_querys = ['--', '---', 'drg', 'drs', 'xel']
 		if args['verbose']:
@@ -222,6 +225,7 @@ class PA_Dataset(torch.utils.data.Dataset):
 			self.data_plot(pixel_name, plot_data)
 		return data_files
 	
+	## Collect the datasets	for batch processing
 	def collect_datasets(self, args):
 		data_files = []
 		cases = args['test_cases'] if self.mode == 'inference' else args['cases']
@@ -240,6 +244,7 @@ class PA_Dataset(torch.utils.data.Dataset):
 			data_files.append(self.construct_config_datasets(args, c, pixel_name, param_dir, datas_dir))
 		return list(chain.from_iterable(data_files))
 
+	## Plot the data for debugging
 	def data_plot(self, pixel_name, datas):
 		folder = '../original_data/plot/'
 		os.makedirs(folder, exist_ok=True)
@@ -255,6 +260,7 @@ class PA_Dataset(torch.utils.data.Dataset):
 
 			plt.savefig(folder + file_name[i]+'_'+ pixel_name + '.png')
 
+## Collator for the PA dataset
 class PA_Collator(object):
 	def __init__(self, batch_size, mode):
 		self.batch_size = batch_size
@@ -274,28 +280,14 @@ class PA_Collator(object):
 				y_list = torch.cat([y_list, torch.zeros(diff, y_list.shape[1])])
 			input_list = torch.cat([input_list, torch.zeros(diff, input_list.shape[1])])
 
-		return x_list, y_list, input_list	
-	
-		# padded_batch = [torch.nn.functional.pad(torch.tensor(item), (0, max_len - len(item)), value=0) for item in batch]
-		# return torch.stack(padded_batch)
-		# print(samples)
-		# if diff > 0:
-		# 	print(samples[0].shape, samples[2].shape)
-		# 	for i in range(diff):
-		# 		samples.append((torch.zeros(size=(samples[0][0].shape[0])), torch.tensor([0]), torch.zeros(size=(samples[0][2].shape[0]))))
+		return x_list, y_list, input_list
 
-		# return samples
-
-
+## Load the datasets based on the arguments
 def load_datasets(args, type = -1, mode = 'train'):	
 	if mode == 'train':				
 		dataset = PA_Dataset(args, type, normalization=args['normalization'], mode = mode)
 		dataset_size = len(dataset)
-		# train_size = int(train_ratio * dataset_size)
-		# test_size = dataset_size - train_size
 		batch_size = args['batch_size']
-
-
 		train_size = int(dataset_size/batch_size) * batch_size
 		test_size = dataset_size - train_size
 		train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
@@ -308,9 +300,6 @@ def load_datasets(args, type = -1, mode = 'train'):
 	else:
 		dataset = PA_Dataset(args, type, normalization=args['normalization'], mode = mode)
 		batch_size = args['batch_size']
-
-		# all_indices = list(range(len(dataset)))
-		# subset_dataset = Subset(dataset, all_indices[::len(dataset)//(3*batch_size)][:3*batch_size])
 		collate_fn = PA_Collator(batch_size, mode)
 		plot_loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, pin_memory=(torch.cuda.is_available()), num_workers = 15, collate_fn = collate_fn)
 		return plot_loader

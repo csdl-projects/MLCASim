@@ -1,4 +1,5 @@
 ##################################################################
+## getModel.py                                                  ##
 ## This file is used to get the prediction model based on the   ##
 ## input arguments.                                             ##
 ## The model can be selected by the option argument.            ##
@@ -7,13 +8,14 @@
 ## 3. CircuitMixer : Mixer based prediction model               ##
 ##################################################################
 ## Author: Jaeseung Lee                                         ##
-## Date: July 2024                                              ##
+## Date: September 2024                                         ##
 ## Affiliation: POSTECH CSDL, South Korea                       ##
 ##################################################################
 
 from model import *
 
 
+## Option 1: RidgeModel, Option 2: IHE_CLSTM (2nd years), Option 3: CircuitMixer (3rd years)
 def get_model(args, num_param, option=1):        
     if option == 1:
         model = RidgeModel(

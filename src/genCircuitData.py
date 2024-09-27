@@ -1,8 +1,22 @@
 ##################################################################
 ## Code to generate the SPICE netlist for the Pixel3T1C circuit ##
+## and run the HSPICE simulation                                ##
+## SPICE_parameters: Parameters of the OTV PARFILE HSPICE       ##
+## writePixelCircuit: Function to write the SPICE netlist       ##
+## If you want to run the simulation for the Pixel3T1C circuit  ##
+## directly, use the following code as main function            ##
+##                     -s : number_scanline_pixel               ##
+##                     -d : number_dataline_pixel               ##
+##                     -r : res                                 ##
+##                     -c : cap                                 ##
+##                     -t : tw_s                                ##
+##                     -v : VDH                                 ##
+##                     -lr : load_ratio                         ##
+##                     -x : step_x                              ##
+##                     -y : step_y                              ##
 ##################################################################
 ## Author: Jaeseung Lee                                         ##
-## Date: July 2024                                              ##
+## Date: September 2024                                         ##
 ## Affiliation: POSTECH CSDL, South Korea                       ##
 ##################################################################
 
@@ -195,7 +209,7 @@ def writePixelCircuit(file, SPICE_parameters, configs):
         file.write("*************************************************************************\n")
         file.write(".END\n")
 
-
+## If you want to run the simulation for the Pixel3T1C circuit directly, use the following code as main function 
 if __name__ == '__main__':        
     # Open the SPICE netlist file for writing
     pixel_dir = '/project/common/LGD/spice_data/circuit'

@@ -8,7 +8,7 @@
 ## FeatureMixing : Feature mixing layer (channel)               ##
 ##################################################################
 ## Author: Jaeseung Lee                                         ##
-## Date: July 2024                                              ##
+## Date: September 2024                                         ##
 ## Affiliation: POSTECH CSDL, South Korea                       ##
 ##################################################################
 
@@ -20,6 +20,7 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
 
+## Custom normalization layer which has the extended behavior as nn.BatchNorm1d
 class CircuitNorm2d(nn.BatchNorm1d):
     def __init__(self, normalized_shape: tuple[int, int]):
         num_data, num_channels = normalized_shape
@@ -33,6 +34,8 @@ class CircuitNorm2d(nn.BatchNorm1d):
         x = x.reshape(x.shape[0], self.num_data, self.num_channels)
         return x
     
+## Mixer layer for CircuitMixer
+## This layer consists of DataMixing and FeatureMixing    
 class MixerLayer(nn.Module):
     def __init__(
         self,
@@ -212,6 +215,7 @@ class ConditionalFeatureMixing(nn.Module):
             torch.cat([x, f], dim = -1),
         ), f.detach())
 
+## Transpose the data and feature dimension
 def data_to_feature(x: Tensor) -> Tensor:
     return x.permute(0, 2, 1)
 

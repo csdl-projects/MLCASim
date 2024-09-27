@@ -1,5 +1,15 @@
-## main.py
-## parameter sweep script
+##################################################################
+## Main file for training and testing the model                 ##
+## This file is used to train the model based on the input      ##
+## arguments.                                                   ##
+## The model can be selected by the option argument.            ##
+## If you use wandb, you can use the sweep function to          ##
+## search the best hyperparameters.                             ##
+##################################################################
+## Author: Jaeseung Lee                                         ##
+## Date: September 2024                                         ##
+## Affiliation: POSTECH CSDL, South Korea                       ##
+##################################################################
 
 import time
 import os
@@ -17,7 +27,7 @@ from dataset import load_datasets
 from getModel import get_model
 import utils
 
-
+## Training function
 def train(args, model, train_loader, loss_function, optimizer, schedular, epoch):
     train_losses = []
     model.train()
@@ -56,8 +66,7 @@ def train(args, model, train_loader, loss_function, optimizer, schedular, epoch)
         schedular.step()        
         train_losses.append(float(loss))           
 
-    train_loss = max(train_losses)
-    
+    train_loss = max(train_losses)    
     if args['verbose'] and epoch % 10 == 0:
         print(f'EPOCH {epoch}\t LOSS : {train_loss:.6f}\tTIME : {(time.time()-start):.2f}')
 
@@ -68,7 +77,8 @@ def train(args, model, train_loader, loss_function, optimizer, schedular, epoch)
 
     return model, optimizer
 
-def plot(args, model, plot_loader, name, best_loss, epoch):    
+## Inference and Plotting function
+def inference_and_plot(args, model, plot_loader, name, best_loss, epoch):    
     index_to_name = ['W_DRG', 'W_DRS', 'W_DIODE']
     final = {}
     total = int((args['end'] - args['start']) * args['resolution'])
@@ -141,6 +151,7 @@ def plot(args, model, plot_loader, name, best_loss, epoch):
 
     return [R2, MAPE, MAE, MSE]
 
+## Core process function for training and testing
 def process(args, train_loader, plot_loader, CHECKPOINT_PATH, name, maxepoch):
     best_loss = 1e9
     start_epoch = 0
@@ -164,6 +175,7 @@ def process(args, train_loader, plot_loader, CHECKPOINT_PATH, name, maxepoch):
 
     loss_function = torch.nn.HuberLoss(reduction='mean', delta=0.5)
     wandb.watch(model, loss_function, log="all", log_freq=10)
+    ## If you want to use the learning rate scheduler, you can use the following code
     # scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer = optimizer, lr_lambda = lambda epoch: 0.95 ** epoch)
     # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer = optimizer, mode='min', factor=0.5, patience = 100)
     scheduler =  torch.optim.lr_scheduler.StepLR(optimizer, step_size=500, gamma=0.9)
@@ -173,7 +185,7 @@ def process(args, train_loader, plot_loader, CHECKPOINT_PATH, name, maxepoch):
 
     for epoch in tqdm(range(start_epoch, maxepoch), desc="Training", leave=True):
         model, optimizer = train(args, model, train_loader, loss_function, optimizer, scheduler, epoch)
-        loss = plot(args, model, plot_loader, name, best_loss, epoch)
+        loss = inference_and_plot(args, model, plot_loader, name, best_loss, epoch)
 
         state = {
             'epoch' : epoch,
@@ -182,6 +194,7 @@ def process(args, train_loader, plot_loader, CHECKPOINT_PATH, name, maxepoch):
             'loss' : loss,
         }
         torch.save(state, os.path.join(CHECKPOINT_PATH, name + '.pth'))
+        ## Save the best model
         if best_loss > loss[3]:
             best_loss = loss[3]
             shutil.copyfile(os.path.join(CHECKPOINT_PATH, name + '.pth'),
@@ -192,6 +205,7 @@ def process(args, train_loader, plot_loader, CHECKPOINT_PATH, name, maxepoch):
         print(f"Train completed\t\tTIME : {(end_train - end_model):.2f}")
 
 
+## Main function with wandb sweep
 def main():
     torch.set_printoptions(precision=6)
     torch.set_default_dtype(torch.float32)
