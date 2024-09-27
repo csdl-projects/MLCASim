@@ -3,7 +3,7 @@
 ## About MLCASim
 ML based Circuit Simulation for Analog Circuit Array.
 
-POSTECH CSDL and LG Display (2021-2024)
+POSTECH CSDL and LG Display (2022-2024)
 
 ## Usage
 To use MLCASim, follow these steps:
@@ -27,5 +27,5 @@ To use MLCASim, follow these steps:
 - Support for analog circuit arrays
 
 ## Contact
-For any questions or inquiries, please contact the project maintainer at [jslee@postech.ac.kr](mailto:jslee@postech.ac.kr).
+For any questions or inquiries, please contact the project maintainer at [jae2seung@postech.ac.kr](mailto:jae2seung@postech.ac.kr).
 
