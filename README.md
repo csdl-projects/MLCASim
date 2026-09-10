@@ -5,6 +5,12 @@ ML based Circuit Simulation for Analog Circuit Array.
 
 POSTECH CSDL and LG Display (2022-2024)
 
+## Author
+Jaeseung Lee; Sejin Park; Minhyeok Kweon; Seokhyeong Kang
+
+## Paper
+[MLCAD2023] Machine Learning-based Fast Circuit Simulation for Analog Circuit Array
+
 ## Usage
 To use MLCASim, follow these steps:
 
